@@ -1,0 +1,51 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "连接挚算智联",
+        "description": "填写从挚算开放平台申请的客户端凭证和账号信息。",
+        "data": {
+          "client_id": "Client ID",
+          "client_secret": "Client Secret",
+          "username": "挚算账号（邮箱/手机）",
+          "password": "密码",
+          "environment": "环境",
+          "region": "区域"
+        }
+      },
+      "home": {
+        "title": "选择家庭",
+        "description": "检测到多个家庭，请选择要接入的家庭。",
+        "data": {
+          "home_id": "家庭"
+        }
+      },
+      "reauth_confirm": {
+        "title": "重新认证挚算",
+        "description": "Token 过期或失效，请重新输入密码。",
+        "data": {
+          "password": "密码"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "账号、密码或 Client 凭证错误。",
+      "cannot_connect": "无法连接挚算云服务，请检查网络。",
+      "unknown": "发生未知错误，详情请看 HA 日志。"
+    },
+    "abort": {
+      "already_configured": "这个 Client ID 和账号已经配置过了。",
+      "reauth_successful": "重新认证成功。"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "挚算选项",
+        "data": {
+          "environment": "环境"
+        }
+      }
+    }
+  }
+}
