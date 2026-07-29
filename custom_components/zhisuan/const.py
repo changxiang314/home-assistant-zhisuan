@@ -25,6 +25,12 @@ API_BASE_URLS: Final = {
     ENV_PROD: "https://app.aioteco.com/openApi",
 }
 
+# OAuth 端点不带 /openApi 前缀（业务 API 才带）
+OAUTH_BASE_URLS: Final = {
+    ENV_DEV: "https://apptest.aioteco.com",
+    ENV_PROD: "https://app.aioteco.com",
+}
+
 DEFAULT_ENVIRONMENT: Final = ENV_DEV
 
 # ----- OAuth -----
