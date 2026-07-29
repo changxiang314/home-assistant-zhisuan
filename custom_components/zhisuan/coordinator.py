@@ -97,6 +97,10 @@ class ZhisuanCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
                     ext.update(props)
             self._pending_pushes.clear()
             self._devices = new_cache
+            _LOGGER.info(
+                "ZhiSuan refresh OK: home_id=%s, devices=%d, rooms=%d",
+                self._home_id, len(self._devices), len(self._rooms),
+            )
             return self._devices
 
         except ZhisuanAuthError as err:
