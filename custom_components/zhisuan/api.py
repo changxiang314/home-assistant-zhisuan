@@ -163,21 +163,24 @@ class ZhisuanApi:
     # 家庭 / 房间
     # ------------------------------------------------------------------
     async def async_get_homes(self) -> list[dict[str, Any]]:
-        """Get list of homes."""
+        """Get list of homes.
+
+        Response shape: ``{"data": {"homeList": [{"homeId", "homeName",
+        "areaList": [{"roomList": [...]}], ...}]}}``
+        """
         resp = await self._async_get(HOME_LIST_URL)
-        return resp["data"]["list"]
+        return resp["data"]["homeList"]
 
     async def async_get_rooms(self, home_id: int) -> list[dict[str, Any]]:
-        """Get rooms under a home. Note: this endpoint may return rooms inside
-        a home object; we try both shapes."""
-        resp = await self._async_get(ROOM_LIST_URL, params={"homeId": home_id})
-        data = resp.get("data") or {}
-        # Some endpoints return Page<Room>, some return List<Room> directly
-        if isinstance(data, dict) and "list" in data:
-            return data["list"]
-        if isinstance(data, list):
-            return data
-        return []
+        """Get rooms under a home.
+
+        Response shape: ``{"data": {"roomList": [{"roomId", "roomName",
+        "icon"}, ...]}}``
+
+        Note: homeId is sent as HTTP header (per CLI), not query param.
+        """
+        resp = await self._async_get(ROOM_LIST_URL, home_id=home_id)
+        return resp["data"]["roomList"]
 
     # ------------------------------------------------------------------
     # 设备
@@ -191,16 +194,21 @@ class ZhisuanApi:
         **filters: Any,
     ) -> dict[str, Any]:
         """Get a page of devices under a home. Returns the page object:
-        {page, pageSize, pageTotal, dataTotal, list: [Device, ...]}
+        ``{page, pageSize, pageTotal, dataTotal, list: [Device, ...]}``
+
+        Response shape: ``{"data": {"pagePojo": {page..., "list": [...]}}}``
+
+        Note: homeId is sent as HTTP header (per CLI), not query param.
         """
         params: dict[str, Any] = {
             "page": page,
             "pageSize": page_size,
-            "homeId": home_id,
         }
         params.update(filters)
-        resp = await self._async_get(DEVICE_LIST_URL, params=params)
-        return resp["data"]
+        resp = await self._async_get(
+            DEVICE_LIST_URL, params=params, home_id=home_id
+        )
+        return resp["data"]["pagePojo"]
 
     async def async_get_all_devices(self, home_id: int) -> list[dict[str, Any]]:
         """Page through and return ALL devices under a home."""
