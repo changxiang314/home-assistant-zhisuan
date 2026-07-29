@@ -121,6 +121,11 @@ class ZhisuanEntity(CoordinatorEntity[ZhisuanCoordinator]):
             info_kwargs["serial_number"] = f"{d.get('deviceMac', '')}_{self._node_id}"
         elif d.get("deviceMac"):
             info_kwargs["serial_number"] = d["deviceMac"]
+        # 挚算设备是子设备的（如 AC/地暖挂在 gateway 下面），
+        # 用 via_device 链接到父设备，HA 才不会丢
+        parent_id = d.get("parentId")
+        if parent_id:
+            info_kwargs["via_device"] = (DOMAIN, str(parent_id))
         return DeviceInfo(**info_kwargs)
 
     @property
