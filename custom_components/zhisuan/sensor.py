@@ -19,8 +19,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
     CONCENTRATION_PARTS_PER_MILLION,
+    LIGHT_LUX,
     PERCENTAGE,
-    UnitOfIlluminance,
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
@@ -158,7 +158,7 @@ def _ha_unit_for(prop_name: str) -> str | None:
         "currentTemperature": UnitOfTemperature.CELSIUS,
         "humidity": PERCENTAGE,
         "battery": PERCENTAGE,
-        "illuminance": UnitOfIlluminance.LUX,
+        "illuminance": LIGHT_LUX,
         "PM25": CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
         "co2": CONCENTRATION_PARTS_PER_MILLION,
     }.get(prop_name)
