@@ -36,7 +36,7 @@ REGISTER_URL: Final = "/v1/register"
 
 # ----- REST endpoints -----
 HOME_LIST_URL: Final = "/v1/home"
-ROOM_LIST_URL: Final = "/v1/room"
+ROOM_LIST_URL: Final = "/v1/home/room"
 DEVICE_LIST_URL: Final = "/v1/device"
 DEVICE_BY_ID_URL: Final = "/v1/device/{user_device_id}"  # noqa: S105
 DEVICE_CONTROL_URL: Final = "/v1/device/control"
