@@ -13,6 +13,8 @@ from aiohttp import ClientError, ClientResponseError, ClientTimeout
 from .const import (
     API_BASE_URLS,
     API_VERSION,
+    CONF_COUNTRY_CODE,
+    DEFAULT_COUNTRY_CODE,
     DEFAULT_ENVIRONMENT,
     DEFAULT_LANGUAGE,
     DEFAULT_TIMEOUT,
@@ -70,6 +72,7 @@ class ZhisuanApi:
         self._environment = environment
         self._region = region
         self._language = language
+        self._country_code = DEFAULT_COUNTRY_CODE
         self._base_url = API_BASE_URLS[environment]
 
         # OAuth token state
@@ -118,12 +121,10 @@ class ZhisuanApi:
             data={
                 "username": username,
                 "userPassword": password,
-                "regionId": self._region,
                 "client_id": self._client_id,
+                "regionId": self._region or "",
                 "response_type": "code",
-                "state": "",
-                "scope": "",
-                "redirect_uri": "",
+                "countryCode": self._country_code,
             },
         )
         code = code_resp["data"]["code"]
