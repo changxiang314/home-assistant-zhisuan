@@ -63,7 +63,7 @@ class ZhisuanApi:
         session: aiohttp.ClientSession,
         *,
         environment: str = DEFAULT_ENVIRONMENT,
-        region: str = "LOCAL",
+        region: str = "CN",
         language: str = DEFAULT_LANGUAGE,
     ) -> None:
         self._client_id = client_id
