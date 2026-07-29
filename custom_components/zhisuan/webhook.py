@@ -23,8 +23,6 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.network import get_url
-from homeassistant.helpers.typing import ConfigType
-from homeassistant.util import ssl as ssl_util
 
 from .api import ZhisuanApi, ZhisuanApiError
 from .const import (
