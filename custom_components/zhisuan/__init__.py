@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.webhook import (
+from homeassistant.components.webhook import (
     async_generate_id as async_generate_webhook_id,
     async_register as async_register_webhook,
     async_unregister as async_unregister_webhook,
