@@ -261,10 +261,12 @@ class ZhisuanClimateEntity(ZhisuanEntity, ClimateEntity):
         temp = kwargs.get("temperature")
         if temp is None or ACTION_SET_TEMPERATURE not in self._actions:
             return
+        # 挚算 API: SetTemperature 的 extension 键是 "value"（不是 "temperature"）
+        # 来源: zs_cli/commands/openapi/actions.py 第 21 行注释
         await self.coordinator.async_control(
             self._user_device_id,
             ACTION_SET_TEMPERATURE,
-            extension={"temperature": float(temp)},
+            extension={"value": float(temp)},
         )
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
@@ -273,10 +275,11 @@ class ZhisuanClimateEntity(ZhisuanEntity, ClimateEntity):
         speed = WIND_SPEED_MAP.get(fan_mode)
         if speed is None:
             return
+        # 挚算 API: SetWindSpeed 的 extension 键也是 "value"
         await self.coordinator.async_control(
             self._user_device_id,
             ACTION_SET_WIND_SPEED,
-            extension={"windSpeed": speed},
+            extension={"value": speed},
         )
 
     async def async_turn_on(self) -> None:
