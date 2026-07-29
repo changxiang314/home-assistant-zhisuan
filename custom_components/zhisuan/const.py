@@ -6,6 +6,7 @@ from typing import Final
 DOMAIN: Final = "zhisuan"
 MANUFACTURER: Final = "杭州挚算科技有限公司"
 DEFAULT_NAME: Final = "挚算智联"
+DEFAULT_COUNTRY_CODE: Final = "86"  # 中国大陆
 
 # ----- Configuration keys -----
 CONF_CLIENT_ID: Final = "client_id"
@@ -15,6 +16,7 @@ CONF_PASSWORD: Final = "password"
 CONF_REGION: Final = "region"
 CONF_HOME_ID: Final = "home_id"
 CONF_ENVIRONMENT: Final = "environment"  # "dev" or "prod"
+CONF_COUNTRY_CODE: Final = "country_code"
 
 # ----- API endpoints -----
 ENV_DEV: Final = "dev"
