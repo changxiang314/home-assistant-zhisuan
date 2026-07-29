@@ -116,6 +116,10 @@ class ZhisuanApi:
         self._username = username
         self._password = password
 
+        _LOGGER.warning(
+            "ZhiSuan OAuth login: client_id=%s region=%s country=%s",
+            self._client_id, self._region, self._country_code,
+        )
         code_resp = await self._async_post_form(
             OAUTH_AUTHORIZE_URL,
             data={
@@ -127,6 +131,7 @@ class ZhisuanApi:
                 "countryCode": self._country_code,
             },
         )
+        _LOGGER.warning("ZhiSuan OAuth code: %s", code_resp)
         code = code_resp["data"]["code"]
         await self._async_exchange_code(code)
 
@@ -282,6 +287,7 @@ class ZhisuanApi:
                 "redirect_uri": "http://",
             },
         )
+        _LOGGER.warning("ZhiSuan OAuth token: %s", resp)
         self._store_token_response(resp)
 
     def _store_token_response(self, resp: dict[str, Any]) -> None:
@@ -291,6 +297,11 @@ class ZhisuanApi:
         expires_in = int(data.get("expires_in", 7776000))
         # 提前 TOKEN_REFRESH_MARGIN 秒刷新，留缓冲
         self._token_expires_at = time.time() + max(expires_in - TOKEN_REFRESH_MARGIN, 60)
+        _LOGGER.warning(
+            "ZhiSuan token stored: access=***%s expires_in=%ss",
+            self._access_token[-8:] if self._access_token else "EMPTY",
+            expires_in,
+        )
 
     async def _ensure_token_fresh(self) -> None:
         if not self._access_token:
@@ -319,7 +330,7 @@ class ZhisuanApi:
             k: ("***" + v[-8:] if k == "authorization" and v else v)
             for k, v in headers.items()
         }
-        _LOGGER.debug(
+        _LOGGER.warning(
             "→ %s %s  headers=%s  body=%s",
             method, path, redacted, body,
         )
@@ -367,7 +378,7 @@ class ZhisuanApi:
                 headers=headers,
                 timeout=ClientTimeout(total=DEFAULT_TIMEOUT),
             ) as resp:
-                _LOGGER.debug("← %s %s  status=%d", "POST", path, resp.status)
+                _LOGGER.warning("← %s %s  status=%d", "POST", path, resp.status)
                 return await self._parse_response(resp)
         except ClientResponseError as err:
             if err.status in (401, 403):
