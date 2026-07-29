@@ -55,7 +55,7 @@ USER_SCHEMA = vol.Schema(
         vol.Required(CONF_ENVIRONMENT, default=DEFAULT_ENVIRONMENT): vol.In(
             [ENV_DEV, ENV_PROD]
         ),
-        vol.Optional(CONF_REGION, default="LOCAL"): cv.string,
+        vol.Optional(CONF_REGION, default="CN"): cv.string,
     }
 )
 
@@ -70,7 +70,7 @@ async def _validate_and_fetch_homes(
         client_secret=data[CONF_CLIENT_SECRET],
         session=session,
         environment=data[CONF_ENVIRONMENT],
-        region=data.get(CONF_REGION, "LOCAL"),
+        region=data.get(CONF_REGION, "CN"),
     )
     await api.async_login(data[CONF_USERNAME], data[CONF_PASSWORD])
     homes = await api.async_get_homes()
