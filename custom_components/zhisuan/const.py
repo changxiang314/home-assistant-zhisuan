@@ -87,6 +87,12 @@ DEVICE_TYPE_BUTTON: Final = "Button"
 DEVICE_TYPE_DIMMER: Final = "Dimmer"
 DEVICE_TYPE_SWITCH: Final = "Switch"
 DEVICE_TYPE_INFRARED: Final = "Infrared"
+DEVICE_TYPE_SCENE_TRIGGER: Final = "SceneTrigger"
+DEVICE_TYPE_MIX_LIGHT_TOUCH_PANEL: Final = "MixLightTouchPanel"
+DEVICE_TYPE_AIR_FRESHER: Final = "AirFresher"
+DEVICE_TYPE_MULTI_IN_ONE_PANEL: Final = "MultiInOnePanel"
+DEVICE_TYPE_MULTI_IN_ONE_MANAGER: Final = "MultiInOneManager"
+DEVICE_TYPE_MOORE: Final = "Moore"
 DEVICE_TYPE_WEBCAM: Final = "Webcam"
 DEVICE_TYPE_DOOR_LOCK: Final = "DoorLock"
 DEVICE_TYPE_DOOR_BELL: Final = "DoorBell"
@@ -114,7 +120,12 @@ DEVICE_TYPE_TO_HA_PLATFORM: Final = {
     DEVICE_TYPE_DETECTOR: "sensor",
     DEVICE_TYPE_AIR_MONITOR: "sensor",
     DEVICE_TYPE_INFRARED: "climate",  # 空调伴侣当作 climate
-    # Host / Gateway / Button / Webcam / DoorLock / DoorBell / AirFresher / AirPurifier / Disconnector 暂不实现
+    DEVICE_TYPE_SCENE_TRIGGER: "switch",          # 四路快捷面板 → switch
+    DEVICE_TYPE_MIX_LIGHT_TOUCH_PANEL: "switch", # 三路自定义面板 → switch
+    DEVICE_TYPE_AIR_FRESHER: "switch",           # 新风（暂用 switch，后续加 fan 平台）
+    DEVICE_TYPE_MULTI_IN_ONE_PANEL: "climate",   # 地暖多合一
+    DEVICE_TYPE_MULTI_IN_ONE_MANAGER: "climate", # 暖通多合一
+    # Host / Gateway / Moore / Button / Webcam / DoorLock / DoorBell / AirPurifier / Disconnector 暂不实现（基础设施或未支持）
 }
 
 # ----- Sensor / Detector 属性 → HA sensor 平台 + 字段 -----
