@@ -192,14 +192,10 @@ class ZhisuanWebhookView(HomeAssistantView):
             return web.Response(status=400, text="bad json")
 
         _LOGGER.debug("Webhook payload: %s", payload)
-        await self.hass.async_add_executor_job(self._dispatch_sync, payload)
+        # 直接在事件循环里 fire-and-forget 调度任务，HA 2026 禁止跨线程 async_create_task
+        self.hass.async_create_task(self._dispatch(payload))
         # 立即 200 OK — 挚算期望快速 ack
         return web.Response(status=200, text="ok")
-
-    @callback
-    def _dispatch_sync(self, payload: dict[str, Any]) -> None:
-        """Synchronously fire-and-forget the dispatch task."""
-        self.hass.async_create_task(self._dispatch(payload))
 
     async def _dispatch(self, payload: dict[str, Any]) -> None:
         msg_type = payload.get("messageType")
