@@ -21,6 +21,7 @@ from .const import (
     DEVICE_LIST_URL,
     HOME_LIST_URL,
     OAUTH_AUTHORIZE_URL,
+    OAUTH_BASE_URLS,
     OAUTH_TOKEN_URL,
     REGISTER_URL,
     ROOM_LIST_URL,
@@ -71,6 +72,7 @@ class ZhisuanApi:
         self._region = region
         self._language = language
         self._base_url = API_BASE_URLS[environment]
+        self._oauth_base_url = OAUTH_BASE_URLS[environment]
 
         # OAuth token state
         self._access_token: str | None = None
@@ -360,8 +362,12 @@ class ZhisuanApi:
         *,
         data: dict[str, Any],
     ) -> dict[str, Any]:
-        """POST with application/x-www-form-urlencoded (used by OAuth)."""
-        url = f"{self._base_url}{path}"
+        """POST with application/x-www-form-urlencoded (used by OAuth).
+
+        OAuth endpoints live at the root domain (no /openApi prefix), unlike
+        the business REST API.
+        """
+        url = f"{self._oauth_base_url}{path}"
         headers = {
             "content-type": "application/x-www-form-urlencoded",
             "language": self._language,
