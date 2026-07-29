@@ -19,9 +19,6 @@ import aiohttp
 from aiohttp import web
 from aiohttp.client_exceptions import ClientConnectorError
 
-from homeassistant.components.cloud import (  # type: ignore[attr-defined]
-    CloudNotAvailable,
-)
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -100,9 +97,12 @@ async def async_resolve_public_url(hass: HomeAssistant) -> str | None:
     except (ClientConnectorError, asyncio.TimeoutError, aiohttp.ClientError):
         pass  # Cloudflared 没装或没起 — 继续往下试
 
-    # 2. Nabu Casa
+    # 2. Nabu Casa (lazy import — only available if Nabu Casa Cloud is enabled)
     try:
-        from homeassistant.components.cloud import async_remote_ui_url  # type: ignore
+        from homeassistant.components.cloud import (  # type: ignore[attr-defined]
+            CloudNotAvailable,
+            async_remote_ui_url,
+        )
 
         cloud_url = async_remote_ui_url(hass)
         if cloud_url:
