@@ -313,6 +313,17 @@ class ZhisuanApi:
             headers["homeId"] = str(home_id)
         return headers
 
+    def _log_request(self, method: str, path: str, headers: dict, body: Any = None) -> None:
+        """Log a redacted summary of an outgoing request for debugging 401s."""
+        redacted = {
+            k: ("***" + v[-8:] if k == "authorization" and v else v)
+            for k, v in headers.items()
+        }
+        _LOGGER.debug(
+            "→ %s %s  headers=%s  body=%s",
+            method, path, redacted, body,
+        )
+
     async def _async_get(
         self,
         path: str,
@@ -348,6 +359,7 @@ class ZhisuanApi:
         url = f"{self._base_url}{path}"
         headers = self._auth_headers(home_id)
         headers["content-type"] = "application/json"
+        self._log_request("POST", path, headers, data)
         try:
             async with self._session.post(
                 url,
@@ -355,6 +367,7 @@ class ZhisuanApi:
                 headers=headers,
                 timeout=ClientTimeout(total=DEFAULT_TIMEOUT),
             ) as resp:
+                _LOGGER.debug("← %s %s  status=%d", "POST", path, resp.status)
                 return await self._parse_response(resp)
         except ClientResponseError as err:
             if err.status in (401, 403):
