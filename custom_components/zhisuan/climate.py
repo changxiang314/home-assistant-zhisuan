@@ -155,14 +155,13 @@ class ZhisuanClimateEntity(ZhisuanEntity, ClimateEntity):
             features |= ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF
         if ACTION_SET_TEMPERATURE in actions:
             features |= ClimateEntityFeature.TARGET_TEMPERATURE
-        if ACTION_SET_MODE in actions:
-            # 支持的模式按 device type 决定
-            if self._is_infrared:
-                features |= ClimateEntityFeature.FAN_MODE
-            else:
-                features |= ClimateEntityFeature.MODE
-                features |= ClimateEntityFeature.FAN_MODE
-        if ACTION_SET_WIND_SPEED in actions:
+        # 模式切换：HA 2026 不用 MODE feature flag 了，只要 _attr_hvac_modes
+        # 列表里 >1 个 mode 就会自动有模式选择 UI
+        if ACTION_SET_MODE in actions and not self._is_infrared:
+            pass  # mode capability comes from hvac_modes list below
+        if ACTION_SET_WIND_SPEED in actions or (
+            ACTION_SET_MODE in actions and self._is_infrared
+        ):
             features |= ClimateEntityFeature.FAN_MODE
         self._attr_supported_features = features
 
