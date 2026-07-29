@@ -11,11 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers import config_validation as cv
-from homeassistant.components.webhook import (
-    async_generate_id as async_generate_webhook_id,
-    async_register as async_register_webhook,
-    async_unregister as async_unregister_webhook,
-)
+from homeassistant.components import webhook as ha_webhook
 
 from .api import ZhisuanApi, ZhisuanApiError, ZhisuanAuthError, ZhisuanConnectionError
 from .const import (
@@ -57,7 +53,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         client_secret=entry.data[CONF_CLIENT_SECRET],
         session=session,
         environment=entry.data.get(CONF_ENVIRONMENT, DEFAULT_ENVIRONMENT),
-        region=entry.data.get(CONF_REGION, "LOCAL"),
+        region=entry.data.get(CONF_REGION, "CN"),
     )
 
     # OAuth login（保存 refresh_token 到 entry 暂存）
@@ -90,18 +86,47 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # 启动时恢复 token（如果重启后有存）
     # （这里靠 api 内部 _ensure_token_fresh 检查；reload 时由 reload 流程重新 login）
 
-    # 注册 webhook
-    hook_id = entry.data.get("webhook_hook_id") or async_generate_webhook_id()
+    # 注册 webhook（用 inspect 探测签名，兼容 HA 不同版本的 async_register）
+    hook_id = entry.data.get("webhook_hook_id") or ha_webhook.async_generate_id()
     if "webhook_hook_id" not in entry.data:
         hass.config_entries.async_update_entry(
             entry,
             data={**entry.data, "webhook_hook_id": hook_id},
         )
     view = ZhisuanWebhookView(hass, hook_id)
-    async_register_webhook(hass, view.webhook_id if hasattr(view, "webhook_id") else hook_id, view)  # type: ignore[arg-type]
 
-    # 订阅
-    await async_subscribe_webhook(hass, entry, api, hook_id)
+    webhook_registered = False
+    try:
+        import inspect
+        sig = inspect.signature(ha_webhook.async_register)
+        required = [
+            p for p in sig.parameters.values()
+            if p.default is inspect.Parameter.empty
+            and p.kind in (p.POSITIONAL, p.POSITIONAL_OR_KEYWORD)
+        ]
+        if len(required) >= 5:
+            # HA 2024.6+: async_register(hass, domain, name, webhook_id, handler)
+            ha_webhook.async_register(hass, DOMAIN, "zhisuan", hook_id, view)
+        elif len(required) == 3:
+            # Older HA: async_register(hass, webhook_id, handler)
+            ha_webhook.async_register(hass, hook_id, view)
+        else:
+            _LOGGER.warning(
+                "Unknown webhook.async_register signature (required=%d); skipping",
+                len(required),
+            )
+        webhook_registered = True
+    except Exception:  # noqa: BLE001
+        _LOGGER.exception(
+            "Webhook registration failed; integration will run in polling-only mode"
+        )
+
+    # 订阅（webhook 没注册成功也不影响 setup，订阅失败就当没有实时推送）
+    if webhook_registered:
+        try:
+            await async_subscribe_webhook(hass, entry, api, hook_id)
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Initial subscribe failed; will retry in background loop")
 
     # 周期重订阅
     stop_event = asyncio.Event()
@@ -138,7 +163,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # 注销 webhook
         hook_id = entry.data.get("webhook_hook_id")
         if hook_id:
-            async_unregister_webhook(hass, hook_id)
+            try:
+                ha_webhook.async_unregister(hass, hook_id)
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Webhook unregister failed")
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
