@@ -8,13 +8,12 @@
 
 **Settings → Add-ons → Add-on Store** → 搜 **"Cloudflared"** → 点进 → **Install**
 
-启动前在 **Configuration** 标签页填：
+启动前在 **Configuration** 标签页填（**短隧道模式，免账号**）：
 
 ```yaml
-additional_hosts: []
-external_hostname: ""
+catch_all_service: "http://homeassistant.local:8123"  # ← 关键：把所有流量都转给 HA
+metrics: true                                          # ← 重要，集成靠 :2000 端口读公网 URL
 log_level: info
-metrics: true  # ← 重要，集成靠这个端口读公网 URL
 ```
 
 **Save** → 切到 **Info** 标签页 → 打开 **Start on boot** 和 **Watchdog** → 点 **Start**
