@@ -1,7 +1,7 @@
 {
   "domain": "zhisuan",
   "name": "挚算智联",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "documentation": "https://github.com/dcc/zhisuan-ha",
   "issue_tracker": "https://github.com/dcc/zhisuan-ha/issues",
   "codeowners": ["@dcc"],
