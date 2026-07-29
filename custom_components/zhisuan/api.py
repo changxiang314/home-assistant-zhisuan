@@ -116,7 +116,7 @@ class ZhisuanApi:
         self._username = username
         self._password = password
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "ZhiSuan OAuth login: client_id=%s region=%s country=%s",
             self._client_id, self._region, self._country_code,
         )
@@ -131,7 +131,7 @@ class ZhisuanApi:
                 "countryCode": self._country_code,
             },
         )
-        _LOGGER.warning("ZhiSuan OAuth code: %s", code_resp)
+        _LOGGER.debug("ZhiSuan OAuth code: %s", code_resp)
         code = code_resp["data"]["code"]
         await self._async_exchange_code(code)
 
@@ -287,7 +287,7 @@ class ZhisuanApi:
                 "redirect_uri": "http://",
             },
         )
-        _LOGGER.warning("ZhiSuan OAuth token: %s", resp)
+        _LOGGER.debug("ZhiSuan OAuth token: %s", resp)
         self._store_token_response(resp)
 
     def _store_token_response(self, resp: dict[str, Any]) -> None:
@@ -297,7 +297,7 @@ class ZhisuanApi:
         expires_in = int(data.get("expires_in", 7776000))
         # 提前 TOKEN_REFRESH_MARGIN 秒刷新，留缓冲
         self._token_expires_at = time.time() + max(expires_in - TOKEN_REFRESH_MARGIN, 60)
-        _LOGGER.warning(
+        _LOGGER.debug(
             "ZhiSuan token stored: access=***%s expires_in=%ss",
             self._access_token[-8:] if self._access_token else "EMPTY",
             expires_in,
@@ -330,7 +330,7 @@ class ZhisuanApi:
             k: ("***" + v[-8:] if k == "authorization" and v else v)
             for k, v in headers.items()
         }
-        _LOGGER.warning(
+        _LOGGER.debug(
             "→ %s %s  headers=%s  body=%s",
             method, path, redacted, body,
         )
@@ -351,7 +351,26 @@ class ZhisuanApi:
                 headers=self._auth_headers(home_id),
                 timeout=ClientTimeout(total=DEFAULT_TIMEOUT),
             ) as resp:
-                return await self._parse_response(resp)
+                payload = await self._parse_response(resp)
+                # 401 自动恢复
+                if (
+                    isinstance(payload, dict)
+                    and payload.get("code") == 401
+                    and self._username
+                    and self._password
+                ):
+                    _LOGGER.warning(
+                        "Got 401 on GET %s, attempting re-login and retry", path
+                    )
+                    await self.async_login(self._username, self._password)
+                    async with self._session.get(
+                        url,
+                        params=params,
+                        headers=self._auth_headers(home_id),
+                        timeout=ClientTimeout(total=DEFAULT_TIMEOUT),
+                    ) as resp2:
+                        return await self._parse_response(resp2)
+                return payload
         except ClientResponseError as err:
             if err.status in (401, 403):
                 raise ZhisuanAuthError(str(err)) from err
@@ -378,8 +397,29 @@ class ZhisuanApi:
                 headers=headers,
                 timeout=ClientTimeout(total=DEFAULT_TIMEOUT),
             ) as resp:
-                _LOGGER.warning("← %s %s  status=%d", "POST", path, resp.status)
-                return await self._parse_response(resp)
+                _LOGGER.debug("← %s %s  status=%d", "POST", path, resp.status)
+                payload = await self._parse_response(resp)
+                # 401 自动恢复：重新登录再重试一次
+                if (
+                    isinstance(payload, dict)
+                    and payload.get("code") == 401
+                    and self._username
+                    and self._password
+                ):
+                    _LOGGER.warning(
+                        "Got 401 on %s, attempting re-login and retry", path
+                    )
+                    await self.async_login(self._username, self._password)
+                    headers = self._auth_headers(home_id)
+                    headers["content-type"] = "application/json"
+                    async with self._session.post(
+                        url,
+                        json=data,
+                        headers=headers,
+                        timeout=ClientTimeout(total=DEFAULT_TIMEOUT),
+                    ) as resp2:
+                        return await self._parse_response(resp2)
+                return payload
         except ClientResponseError as err:
             if err.status in (401, 403):
                 raise ZhisuanAuthError(str(err)) from err
