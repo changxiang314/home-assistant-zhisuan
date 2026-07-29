@@ -432,4 +432,11 @@ class ZhisuanApi:
             raise ZhisuanApiError(
                 f"API error code={code} info={payload.get('info')} data={payload.get('data')}"
             )
+
+        # HTTP 200 但 body 完全空 / 不是预期格式 → 视为鉴权失败
+        # （挚算在 clientId 失效时偶尔会回 200 + 空 body，claude 调试发现）
+        if resp.status in (401, 403) or not payload:
+            raise ZhisuanAuthError(
+                f"Auth failure (status {resp.status}): {text[:200]}"
+            )
         return payload
