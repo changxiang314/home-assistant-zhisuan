@@ -10,9 +10,15 @@ import voluptuous as vol
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
-    ConfigFlowResult,
     OptionsFlow,
 )
+
+# ConfigFlowResult 类型别名是 HA 2024.4+ 才有的
+# 老版本 (2024.3 及更早) 没有这名字，但有等价的 FlowResult
+try:
+    from homeassistant.config_entries import ConfigFlowResult  # type: ignore[attr-defined]
+except ImportError:
+    from homeassistant.data_entry_flow import FlowResult as ConfigFlowResult  # type: ignore[no-redef]
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
