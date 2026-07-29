@@ -99,16 +99,27 @@ async def async_setup_entry(
     )
     try:
         entities: list[ZhisuanClimateEntity] = []
-        for user_device_id, device in coordinator.devices.items():
+        for i, (user_device_id, device) in enumerate(coordinator.devices.items()):
             dtype = device.get("type")
             if dtype not in CLIMATE_DEVICE_TYPES:
                 continue
-            node_id = None
-            if (device.get("trait") or {}).get("isVirtual"):
-                node_id = str(device.get("nodeId") or "1")
-            entities.append(
-                ZhisuanClimateEntity(coordinator, user_device_id, node_id=node_id)
+            _LOGGER.warning(
+                "  Climate [%d] creating entity for device=%s type=%s name=%s",
+                i, user_device_id, dtype, device.get("deviceName"),
             )
+            try:
+                node_id = None
+                if (device.get("trait") or {}).get("isVirtual"):
+                    node_id = str(device.get("nodeId") or "1")
+                ent = ZhisuanClimateEntity(coordinator, user_device_id, node_id=node_id)
+                entities.append(ent)
+                _LOGGER.warning("    OK device=%s", user_device_id)
+            except Exception as inner_exc:  # noqa: BLE001
+                _LOGGER.exception(
+                    "    FAIL device=%s type=%s: %s",
+                    user_device_id, dtype, inner_exc,
+                )
+                raise
         _LOGGER.warning(
             "Climate: creating %d entities (matched types in devices: %s)",
             len(entities),
