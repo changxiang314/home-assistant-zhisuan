@@ -72,11 +72,20 @@ DEVICE_REPORT_KEYS = {
 async def async_resolve_public_url(hass: HomeAssistant) -> str | None:
     """Resolve the public URL HA is reachable from the internet.
 
-    Priority:
-    1. Cloudflared Add-on's quick-tunnel URL (read from local metrics port)
+    Priority (优先国内可访问的 ddnsto / external_url，再退到 Nabu Casa / Cloudflared)：
+    0. external_url（ddnsto / 自己域名）
+    1. Cloudflared Add-on's quick-tunnel URL
     2. HA Nabu Casa cloud URL
-    3. HA configured external_url
     """
+    # 0. external_url（国内 ddnsto 最稳，优先）
+    try:
+        url = get_url(hass, prefer_external=True)
+        if url and "localhost" not in url and "127.0.0.1" not in url:
+            _LOGGER.warning("Using external_url: %s", url)
+            return url.rstrip("/")
+    except Exception:  # noqa: BLE001
+        pass
+
     # 1. Cloudflared 短隧道
     try:
         async with aiohttp.ClientSession() as session:
@@ -90,12 +99,12 @@ async def async_resolve_public_url(hass: HomeAssistant) -> str | None:
                     if host:
                         # data 可能是 "https://xxx.trycloudflare.com" 或纯 hostname
                         url = host if host.startswith("http") else f"https://{host}"
-                        _LOGGER.debug("Detected cloudflared URL: %s", url)
+                        _LOGGER.warning("Detected cloudflared URL: %s", url)
                         return url.rstrip("/")
     except (ClientConnectorError, asyncio.TimeoutError, aiohttp.ClientError):
         pass  # Cloudflared 没装或没起 — 继续往下试
 
-    # 2. Nabu Casa (lazy import — only available if Nabu Casa Cloud is enabled)
+    # 2. Nabu Casa（GFW 屏蔽，搁最后）
     try:
         from homeassistant.components.cloud import (  # type: ignore[attr-defined]
             CloudNotAvailable,
@@ -104,16 +113,9 @@ async def async_resolve_public_url(hass: HomeAssistant) -> str | None:
 
         cloud_url = async_remote_ui_url(hass)
         if cloud_url:
+            _LOGGER.warning("Using Nabu Casa URL: %s", cloud_url)
             return cloud_url.rstrip("/")
     except (ImportError, CloudNotAvailable, Exception):  # noqa: BLE001
-        pass
-
-    # 3. external_url
-    try:
-        url = get_url(hass, prefer_external=True)
-        if url:
-            return url.rstrip("/")
-    except Exception:  # noqa: BLE001
         pass
 
     return None
