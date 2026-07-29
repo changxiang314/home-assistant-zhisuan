@@ -103,14 +103,17 @@ class ZhisuanConfigFlow(ConfigFlow, domain=DOMAIN):
 
             try:
                 self._homes = await _validate_and_fetch_homes(self.hass, user_input)
-            except ZhisuanAuthError:
+            except ZhisuanAuthError as err:
+                _LOGGER.warning("Auth failed during config flow: %s", err)
                 errors["base"] = "invalid_auth"
             except ZhisuanConnectionError:
+                _LOGGER.warning("Connection error during config flow")
                 errors["base"] = "cannot_connect"
             except ZhisuanApiError:
                 _LOGGER.exception("Unexpected API error during config flow")
                 errors["base"] = "unknown"
             except aiohttp.ClientError:
+                _LOGGER.warning("aiohttp client error during config flow")
                 errors["base"] = "cannot_connect"
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("Unexpected error during config flow")
@@ -183,9 +186,11 @@ class ZhisuanConfigFlow(ConfigFlow, domain=DOMAIN):
             new_data = {**entry.data, CONF_PASSWORD: user_input[CONF_PASSWORD]}
             try:
                 await _validate_and_fetch_homes(self.hass, new_data)
-            except ZhisuanAuthError:
+            except ZhisuanAuthError as err:
+                _LOGGER.warning("Reauth failed: %s", err)
                 errors["base"] = "invalid_auth"
-            except (ZhisuanConnectionError, aiohttp.ClientError):
+            except (ZhisuanConnectionError, aiohttp.ClientError) as err:
+                _LOGGER.warning("Reauth connection error: %s", err)
                 errors["base"] = "cannot_connect"
             else:
                 self.hass.config_entries.async_update_entry(entry, data=new_data)
