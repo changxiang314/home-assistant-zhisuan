@@ -72,7 +72,12 @@ async def async_setup_entry(
         whitelist = DEVICE_PROP_WHITELIST.get(dtype, set())
         if not whitelist:
             continue
+        # 只为设备实际有数据的属性建实体（看 extension 里有没有这个 key）
+        ext = (device.get("cache") or {}).get("extension") or {}
+        ext_keys: set[str] = set(ext.keys()) if isinstance(ext, dict) else set()
         for prop_name in whitelist:
+            if prop_name not in ext_keys:
+                continue  # 设备没这个属性就不建实体
             defn = SENSOR_PROPERTY_DEFS.get(prop_name)
             if defn is None or defn["platform"] != "sensor":
                 continue
