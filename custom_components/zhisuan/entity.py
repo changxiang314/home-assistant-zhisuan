@@ -55,18 +55,49 @@ class ZhisuanEntity(CoordinatorEntity[ZhisuanCoordinator]):
 
     @property
     def is_online(self) -> bool:
-        cache = (self.device or {}).get("cache") or {}
-        # isOnline 是 String（"true"/"false"）在 cache 顶层，不在 extension
+        """Read isOnline from various possible locations in the device payload.
+
+        挚算 API 不一致：isOnline 有时在 cache 顶层，有时在 cache.extension 里，
+        有时缺失。三种位置都查一下，缺失就认为在线。
+        """
+        d = self.device or {}
+        cache = d.get("cache") or {}
+        # 1) cache.isOnline（最常见）
         val = cache.get("isOnline")
-        if isinstance(val, str):
-            return val.lower() == "true"
         if isinstance(val, bool):
             return val
-        return True  # 没有数据时认为在线（避免误报 offline）
+        if isinstance(val, str):
+            return val.lower() == "true"
+        # 2) cache.extension.isOnline
+        ext = cache.get("extension") or {}
+        if isinstance(ext, dict):
+            val = ext.get("isOnline")
+            if isinstance(val, bool):
+                return val
+            if isinstance(val, str):
+                return val.lower() == "true"
+        # 3) 字段缺失 → 视为在线（避免误报）
+        return True
 
     @property
     def available(self) -> bool:
-        return super().available and self.device is not None and self.is_online
+        # 只要求设备在 coordinator 缓存里 + coordinator 上次更新成功。
+        # is_online 单独通过 extra_state_attributes 暴露，不影响可用性。
+        return super().available and self.device is not None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Expose online status + raw device id for debugging."""
+        if not self.device:
+            return None
+        attrs: dict[str, Any] = {
+            "user_device_id": self._user_device_id,
+            "online": self.is_online,
+        }
+        node_id = self._node_id or self.device.get("nodeId")
+        if node_id is not None:
+            attrs["node_id"] = str(node_id)
+        return attrs
 
     # ------------------------------------------------------------------
     # HA 通用属性
