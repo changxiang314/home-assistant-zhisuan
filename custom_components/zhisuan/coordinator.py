@@ -20,7 +20,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import ZhisuanApi, ZhisuanApiError, ZhisuanAuthError
-from .const import DOMAIN
+from .const import ACTION_QUERY_DISCONNECTOR, DEVICE_TYPE_PLUG, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,6 +54,8 @@ class ZhisuanCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
         self._rooms: dict[int, str] = {}
         # 推送缓冲：等下一次 update 时合并
         self._pending_pushes: dict[int, dict[str, Any]] = {}
+        # Plug 设备实时功率（userDeviceId → W，None 表示还没拉到）
+        self._plug_power: dict[int, float | None] = {}
 
     # ------------------------------------------------------------------
     # 公开属性
@@ -71,6 +73,13 @@ class ZhisuanCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
 
     def get_room_name(self, room_id: int) -> str | None:
         return self._rooms.get(room_id)
+
+    def get_plug_power(self, user_device_id: int) -> float | None:
+        """Return the last-known real-time power (W) for a Plug device.
+
+        ``None`` means we have never successfully pulled it.
+        """
+        return self._plug_power.get(user_device_id)
 
     # ------------------------------------------------------------------
     # 主循环：拉全量
@@ -101,12 +110,70 @@ class ZhisuanCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
                 "ZhiSuan refresh OK: home_id=%s, devices=%d, rooms=%d",
                 self._home_id, len(self._devices), len(self._rooms),
             )
+
+            # 拉每个 Plug 设备的实时功率（不阻塞主流程）
+            await self._async_refresh_plug_power()
+
             return self._devices
 
         except ZhisuanAuthError as err:
             raise UpdateFailed(f"Auth error: {err}") from err
         except ZhisuanApiError as err:
             raise UpdateFailed(f"API error: {err}") from err
+
+    # ------------------------------------------------------------------
+    # Plug 实时功率：每个 update 周期拉一次
+    # ------------------------------------------------------------------
+    async def _async_refresh_plug_power(self) -> None:
+        """Query each Plug-type device for real-time power via QueryDisconnector.
+
+        Failure of any individual query is logged at DEBUG and skipped — power
+        is best-effort data and shouldn't break the main refresh.
+        """
+        plug_ids = [
+            dev["userDeviceId"]
+            for dev in self._devices.values()
+            if dev.get("type") == DEVICE_TYPE_PLUG
+            and dev.get("cache", {}).get("isOnline") is not False
+        ]
+        if not plug_ids:
+            return
+        for udid in plug_ids:
+            try:
+                data = await self.api.async_query_device(
+                    udid, ACTION_QUERY_DISCONNECTOR, home_id=self._home_id
+                )
+            except ZhisuanApiError as err:
+                _LOGGER.debug(
+                    "QueryDisconnector failed for device %s: %s", udid, err
+                )
+                continue
+            # data.deviceInfo.data = "47.0"（字符串形式的瓦数）
+            device_info = data.get("deviceInfo") or {}
+            raw = device_info.get("data")
+            if raw is None:
+                _LOGGER.debug(
+                    "QueryDisconnector for device %s returned no .data (keys=%s)",
+                    udid, list(device_info.keys()),
+                )
+                continue
+            try:
+                watts = float(raw)
+            except (TypeError, ValueError):
+                _LOGGER.debug(
+                    "QueryDisconnector for device %s returned non-numeric: %r",
+                    udid, raw,
+                )
+                continue
+            self._plug_power[udid] = watts
+            _LOGGER.debug("Plug %s real-time power: %.1f W", udid, watts)
+        _LOGGER.debug(
+            "Plug power refresh done: %d plug(s), %d reading(s)",
+            len(plug_ids), len(self._plug_power),
+        )
+        # 触发 listener 更新（让 power sensor 显示新值）
+        if self._plug_power:
+            self.async_set_updated_data(self._devices)
 
     # ------------------------------------------------------------------
     # Webhook 推送入口（线程安全：从 webhook view 调）
