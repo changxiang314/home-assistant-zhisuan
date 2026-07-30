@@ -128,15 +128,6 @@ DEVICE_TYPE_TO_HA_PLATFORM: Final = {
     # Host / Gateway / Moore / Button / Webcam / DoorLock / DoorBell / AirPurifier / Disconnector 暂不实现（基础设施或未支持）
 }
 
-# ----- 已知挚算云平台 bug：不把某些设备的状态同步到 openAPI -----
-# 暖通多合一网关（型号 3210, parentId 2879）下面的虚拟子设备
-# 挚算 APP 看得到状态但 openAPI 云端读到的是空 extension
-# 这些设备只能通过挚算 APP 控制，不能在 HA 用
-# 已知受影响的设备 ID（按 base_url + 家庭可能不一样，这里直接列具体 id）
-BROKEN_PARENT_IDS: Final[frozenset[int]] = frozenset({
-    2879,  # 暖通多合一（型号 3210）
-})
-
 # ----- Sensor / Detector 属性 → HA sensor 平台 + 字段 -----
 # value 来自 device.cache.extension[key]
 SENSOR_PROPERTY_DEFS: Final = {
