@@ -40,6 +40,7 @@ ROOM_LIST_URL: Final = "/v1/home/room"
 DEVICE_LIST_URL: Final = "/v1/device"
 DEVICE_BY_ID_URL: Final = "/v1/device/{user_device_id}"  # noqa: S105
 DEVICE_CONTROL_URL: Final = "/v1/device/control"
+DEVICE_QUERY_URL: Final = "/v1/device/query"
 SUBSCRIBE_URL: Final = "/v1/subscribe"
 UNSUBSCRIBE_URL: Final = "/v1/subscribe/{home_id}"  # noqa: S105
 
@@ -59,6 +60,7 @@ WEBHOOK_RESUBSCRIBE_INTERVAL: Final = 6 * 3600  # 6h
 CLOUDFLARED_METRICS_PORT: Final = 2000
 
 # ----- Device actions (挚算 EDeviceAction) -----
+ACTION_QUERY_DISCONNECTOR: Final = "QueryDisconnector"  # 空开/Plug 实时功率
 ACTION_TURN_ON: Final = "TurnOn"
 ACTION_TURN_OFF: Final = "TurnOff"
 ACTION_TURN_ON_OFF: Final = "TurnOnOff"
@@ -99,7 +101,6 @@ DEVICE_TYPE_DOOR_BELL: Final = "DoorBell"
 DEVICE_TYPE_AIR_CONDITION: Final = "AirCondition"
 DEVICE_TYPE_AIR_CONDITION_MANAGER: Final = "AirConditionManager"
 DEVICE_TYPE_FLOOR_HEATING: Final = "FloorHeating"
-DEVICE_TYPE_AIR_FRESHER: Final = "AirFresher"
 DEVICE_TYPE_AIR_PURIFIER: Final = "AirPurifier"
 DEVICE_TYPE_AIR_MONITOR: Final = "AirMonitor"
 DEVICE_TYPE_DISCONNECTOR: Final = "Disconnector"
