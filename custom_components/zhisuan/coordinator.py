@@ -20,7 +20,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import ZhisuanApi, ZhisuanApiError, ZhisuanAuthError
-from .const import BROKEN_PARENT_IDS, DOMAIN
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -96,18 +96,10 @@ class ZhisuanCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
                     ext = cache.setdefault("extension", {})
                     ext.update(props)
             self._pending_pushes.clear()
-            # 排除已知挚算云状态不同步的设备（详见 const.BROKEN_PARENT_IDS）
-            skipped = {
-                uid for uid, dev in new_cache.items()
-                if dev.get("parentId") in BROKEN_PARENT_IDS
-                or uid in BROKEN_PARENT_IDS
-            }
-            for uid in skipped:
-                new_cache.pop(uid, None)
             self._devices = new_cache
             _LOGGER.info(
-                "ZhiSuan refresh OK: home_id=%s, devices=%d (skipped %d broken), rooms=%d",
-                self._home_id, len(self._devices), len(skipped), len(self._rooms),
+                "ZhiSuan refresh OK: home_id=%s, devices=%d, rooms=%d",
+                self._home_id, len(self._devices), len(self._rooms),
             )
             return self._devices
 
