@@ -11,7 +11,7 @@ Supports: AirCondition, AirConditionManager, FloorHeating, Infrared(AC).
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Final
 
 from homeassistant.components.climate import (
     ClimateEntity,
@@ -37,10 +37,6 @@ from .const import (
     DEVICE_TYPE_MULTI_IN_ONE_PANEL,
     DEVICE_TYPE_MULTI_IN_ONE_MANAGER,
     DOMAIN,
-    EXT_MODE,
-    EXT_TEMPERATURE,
-    EXT_TURN_ON_OFF,
-    EXT_WIND_SPEED,
 )
 from .coordinator import ZhisuanCoordinator
 from .entity import ZhisuanEntity
@@ -55,6 +51,12 @@ CLIMATE_DEVICE_TYPES = {
     DEVICE_TYPE_MULTI_IN_ONE_PANEL,
     DEVICE_TYPE_MULTI_IN_ONE_MANAGER,
 }
+
+# ----- 父设备 ID → schema 类型 -----
+# 2879 (MultiInOneManager 3210) 下的虚拟子设备用虚拟 schema（on/mode/setTemp/curTemp/speed）
+# 2998 (MultiInOnePanel 3211) 下的子设备用 mix schema（turnOnOff/workMode/temperature/currentTemperature/windSpeed）
+VIRTUAL_PARENT_IDS: Final = frozenset({2879})
+MIX_PARENT_IDS: Final = frozenset({2998})
 
 # 默认模式映射（HA 模式 → 挚算 mode 数值）
 # 这是按常见空调的常见映射；如不一致在 Options flow 里让用户调整
@@ -78,6 +80,47 @@ WIND_SPEED_MAP: dict[str, int] = {
     "high": 4,
 }
 WIND_SPEED_REVERSE: dict[int, str] = {v: k for k, v in WIND_SPEED_MAP.items()}
+
+# ----- 虚拟子设备 schema（MultiInOneManager 3210 下，model 包含 virtual_AC_3in1） -----
+# extension 字段名不同，且子设备 state 通常为空 → 状态从父设备 eps[] 数组读
+VIRTUAL_FIELD_NAMES: Final[dict[str, str]] = {
+    "on": "on",
+    "mode": "mode",
+    "set_temp": "setTemp",
+    "cur_temp": "curTemp",
+    "speed": "speed",
+    "node_id": "nodeId",
+}
+# 字符串 mode 名称 → HA 模式
+VIRTUAL_MODE_REVERSE: Final[dict[str, HVACMode]] = {
+    "COLD": HVACMode.COOL,
+    "HOT": HVACMode.HEAT,
+    "FAN": HVACMode.FAN_ONLY,
+    "DRY": HVACMode.DRY,
+    "AUTO": HVACMode.AUTO,
+    "WIND": HVACMode.FAN_ONLY,  # 备用别名
+}
+VIRTUAL_MODE_MAP: Final[dict[HVACMode, int]] = {
+    HVACMode.COOL: 1,
+    HVACMode.HEAT: 2,
+    HVACMode.FAN_ONLY: 3,
+    HVACMode.DRY: 4,
+    HVACMode.AUTO: 5,
+}
+# 字符串 speed 名称 → 数值
+VIRTUAL_SPEED_REVERSE: Final[dict[str, int]] = {
+    "HIGH": 4,
+    "MID": 3,
+    "MIDDLE": 3,
+    "LOW": 2,
+    "AUTO": 0,
+}
+VIRTUAL_SPEED_MAP: Final[dict[str, int]] = {
+    "auto": 0,
+    "low": 2,
+    "medium": 3,
+    "high": 4,
+}
 
 # 红外空调伴侣：状态从设备读不到
 INFRARED_DEVICE_TYPES = {DEVICE_TYPE_INFRARED}
@@ -147,6 +190,10 @@ class ZhisuanClimateEntity(ZhisuanEntity, ClimateEntity):
         super().__init__(coordinator, user_device_id, node_id=node_id)
         device = self.device or {}
         self._is_infrared = device.get("type") in INFRARED_DEVICE_TYPES
+        # schema 判定：按父设备 ID 区分虚拟/Mix
+        parent_id = device.get("parentId")
+        self._is_virtual_subdevice = parent_id in VIRTUAL_PARENT_IDS
+        self._is_mix_subdevice = parent_id in MIX_PARENT_IDS
         actions: set[str] = set(device.get("actionList") or [])
         self._actions = actions
 
@@ -180,34 +227,73 @@ class ZhisuanClimateEntity(ZhisuanEntity, ClimateEntity):
         self._attr_fan_modes = ["auto", "low", "medium", "high"]
 
     # ------------------------------------------------------------------
-    # 状态
+    # 状态读取：按 schema 选字段
     # ------------------------------------------------------------------
-    @property
-    def hvac_mode(self) -> HVACMode | None:
-        if not self.ext.get(EXT_TURN_ON_OFF):
-            return HVACMode.OFF
-        # 红外伴侣按 fan_mode 处理，hvac_mode 永远 FAN_ONLY
-        if self._is_infrared:
-            return HVACMode.FAN_ONLY
-        mode = self.ext.get(EXT_MODE)
-        if mode is None:
-            return None
-        return DEFAULT_MODE_REVERSE.get(int(mode))
+    def _virtual_state(self) -> dict[str, Any]:
+        """从父设备 MultiInOneManager 的 eps[] 数组读虚拟子设备状态。
 
-    @property
-    def current_temperature(self) -> float | None:
-        # 文档有 temperature（目标）和 currentTemperature（实际）。先取实际
-        cur = self.ext.get("currentTemperature")
-        if cur is not None:
+        虚拟子设备的自身 extension 通常是空的（要控制一次才填充），
+        父设备的 eps 数组里 epNum 对应子设备的 nodeId。
+        """
+        device = self.device or {}
+        parent_id = device.get("parentId")
+        if not parent_id:
+            return {}
+        parent = self.coordinator.get_device(parent_id) if hasattr(self.coordinator, "get_device") else None
+        if not parent:
+            return {}
+        ext = (parent.get("cache") or {}).get("extension") or {}
+        eps = ext.get("eps") or []
+        my_node = device.get("nodeId") or self._node_id
+        for ep in eps:
+            if str(ep.get("epNum")) == str(my_node):
+                return ep
+        return {}
+
+    def _read_on(self) -> bool | None:
+        if self._is_virtual_subdevice:
+            ext = self._virtual_state()
+            if "on" in ext:
+                return bool(ext["on"])
+            # 兜底：自己 ext 里的 on（控制一次后会填充）
+            v = self.ext.get("on")
+            return bool(v) if v is not None else None
+        # mix schema
+        v = self.ext.get("turnOnOff")
+        if v is None:
+            return None
+        if isinstance(v, str):
+            return v.lower() == "true"
+        return bool(v)
+
+    def _read_mode(self) -> HVACMode | None:
+        if self._is_virtual_subdevice:
+            ext = self._virtual_state()
+            m = ext.get("mode") or self.ext.get("mode")
+            if m is None:
+                return None
+            return VIRTUAL_MODE_REVERSE.get(str(m).upper())
+        # mix schema
+        m = self.ext.get("workMode")
+        if m is None:
+            return None
+        try:
+            return DEFAULT_MODE_REVERSE.get(int(m))
+        except (TypeError, ValueError):
+            return None
+
+    def _read_set_temp(self) -> float | None:
+        if self._is_virtual_subdevice:
+            ext = self._virtual_state()
+            t = ext.get("setTemp")
+            if t is None:
+                t = self.ext.get("setTemp")
             try:
-                return float(cur)
+                return float(t) if t is not None else None
             except (TypeError, ValueError):
                 return None
-        return None
-
-    @property
-    def target_temperature(self) -> float | None:
-        t = self.ext.get(EXT_TEMPERATURE)
+        # mix schema
+        t = self.ext.get("temperature")
         if t is None:
             return None
         try:
@@ -215,12 +301,68 @@ class ZhisuanClimateEntity(ZhisuanEntity, ClimateEntity):
         except (TypeError, ValueError):
             return None
 
-    @property
-    def fan_mode(self) -> str | None:
-        ws = self.ext.get(EXT_WIND_SPEED)
+    def _read_cur_temp(self) -> float | None:
+        if self._is_virtual_subdevice:
+            ext = self._virtual_state()
+            t = ext.get("curTemp")
+            if t is None:
+                t = self.ext.get("curTemp")
+            try:
+                return float(t) if t is not None else None
+            except (TypeError, ValueError):
+                return None
+        # mix schema
+        t = self.ext.get("currentTemperature")
+        if t is None:
+            return None
+        try:
+            return float(t)
+        except (TypeError, ValueError):
+            return None
+
+    def _read_fan_speed(self) -> str | None:
+        if self._is_virtual_subdevice:
+            ext = self._virtual_state()
+            s = ext.get("speed") or self.ext.get("speed")
+            if s is None:
+                return None
+            # 字符串 "HIGH"/"MID"/"LOW" → 数值 4/3/2
+            rev_int = VIRTUAL_SPEED_REVERSE.get(str(s).upper())
+            if rev_int is None:
+                return None
+            return WIND_SPEED_REVERSE.get(rev_int)
+        # mix schema
+        ws = self.ext.get("windSpeed")
         if ws is None:
             return None
-        return WIND_SPEED_REVERSE.get(int(ws))
+        try:
+            return WIND_SPEED_REVERSE.get(int(ws))
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def hvac_mode(self) -> HVACMode | None:
+        on = self._read_on()
+        if on is False:
+            return HVACMode.OFF
+        if self._is_infrared:
+            return HVACMode.FAN_ONLY
+        mode = self._read_mode()
+        if on is True and mode is None:
+            return None  # 已开但模式未知
+        return mode
+
+    @property
+    def current_temperature(self) -> float | None:
+        return self._read_cur_temp()
+
+    @property
+    def target_temperature(self) -> float | None:
+        return self._read_set_temp()
+
+    @property
+    def fan_mode(self) -> str | None:
+        return self._read_fan_speed()
 
     @property
     def min_temp(self) -> float:
@@ -239,14 +381,15 @@ class ZhisuanClimateEntity(ZhisuanEntity, ClimateEntity):
                 self._user_device_id, ACTION_TURN_OFF
             )
             return
-        # 先开
-        if not self.ext.get(EXT_TURN_ON_OFF):
+        # 先开（用 _read_on 兼容两种 schema）
+        if self._read_on() is False:
             await self.coordinator.async_control(
                 self._user_device_id, ACTION_TURN_ON
             )
         # 设模式
         if ACTION_SET_MODE not in self._actions:
             return
+        # 两种 schema 都用 SetMode + {"mode": int}（按文档 §7.5）
         mode_int = DEFAULT_MODE_MAP.get(hvac_mode)
         if mode_int is None:
             _LOGGER.warning("Unsupported hvac_mode: %s", hvac_mode)
