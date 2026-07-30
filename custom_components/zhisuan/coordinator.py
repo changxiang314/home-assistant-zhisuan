@@ -112,7 +112,7 @@ class ZhisuanCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
             )
 
             # 拉每个 Plug 设备的实时功率（不阻塞主流程）
-            await self._async_refresh_plug_power()
+            await self.async_refresh_plug_power()
 
             return self._devices
 
@@ -122,22 +122,31 @@ class ZhisuanCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
             raise UpdateFailed(f"API error: {err}") from err
 
     # ------------------------------------------------------------------
-    # Plug 实时功率：每个 update 周期拉一次
+    # Plug 实时功率：每个 update 周期拉一次 + 事件触发即时刷
     # ------------------------------------------------------------------
-    async def _async_refresh_plug_power(self) -> None:
-        """Query each Plug-type device for real-time power via QueryDisconnector.
+    async def async_refresh_plug_power(self, user_device_id: int | None = None) -> None:
+        """Query Plug device(s) for real-time power via QueryDisconnector.
+
+        - Called every coordinator cycle (60s) to keep the value fresh
+        - Also called by the webhook handler when a Plug's on/off state changes,
+          so the power sensor reflects the new state within ~1-2s instead of
+          waiting for the next periodic refresh.
 
         Failure of any individual query is logged at DEBUG and skipped — power
         is best-effort data and shouldn't break the main refresh.
         """
-        plug_ids = [
-            dev["userDeviceId"]
-            for dev in self._devices.values()
-            if dev.get("type") == DEVICE_TYPE_PLUG
-            and dev.get("cache", {}).get("isOnline") is not False
-        ]
+        if user_device_id is not None:
+            plug_ids = [user_device_id]
+        else:
+            plug_ids = [
+                dev["userDeviceId"]
+                for dev in self._devices.values()
+                if dev.get("type") == DEVICE_TYPE_PLUG
+                and dev.get("cache", {}).get("isOnline") is not False
+            ]
         if not plug_ids:
             return
+        updated = False
         for udid in plug_ids:
             try:
                 data = await self.api.async_query_device(
@@ -167,12 +176,13 @@ class ZhisuanCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
                 continue
             self._plug_power[udid] = watts
             _LOGGER.debug("Plug %s real-time power: %.1f W", udid, watts)
+            updated = True
         _LOGGER.debug(
-            "Plug power refresh done: %d plug(s), %d reading(s)",
-            len(plug_ids), len(self._plug_power),
+            "Plug power refresh: %d plug(s), updated=%s",
+            len(plug_ids), updated,
         )
         # 触发 listener 更新（让 power sensor 显示新值）
-        if self._plug_power:
+        if updated:
             self.async_set_updated_data(self._devices)
 
     # ------------------------------------------------------------------
