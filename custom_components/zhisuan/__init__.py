@@ -9,8 +9,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZhisuanApi, ZhisuanApiError, ZhisuanAuthError, ZhisuanConnectionError
 from .const import (
@@ -81,6 +82,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Coordinator
     coordinator = ZhisuanCoordinator(hass, entry, api)
     await coordinator.async_config_entry_first_refresh()
+
+    # 一次性迁移：v1.2.4 之前给 Light/Plug/Switch/Button 错误创建了 battery sensor，
+    # 导致这些 device 在 HA 里被标 unavailable。启动时清掉。
+    _migrate_stale_battery_sensors(hass, coordinator)
 
     # 启动时恢复 token（如果重启后有存）
     # （这里靠 api 内部 _ensure_token_fresh 检查；reload 时由 reload 流程重新 login）
@@ -156,3 +161,39 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload entry when options change."""
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+def _migrate_stale_battery_sensors(
+    hass: HomeAssistant, coordinator: "ZhisuanCoordinator"
+) -> None:
+    """删除 v1.2.4 之前为 Light/Plug/Switch/Button 错误创建的 battery sensor。
+
+    这些 sensor 的 unique_id 格式是 "{user_device_id}_battery"。
+    如果对应设备 type 是 Light/Plug/Switch/Button，就删掉。
+    """
+    # 哪些 type 的 device 不应该有 battery sensor
+    blocked_types = {"Light", "Plug", "Switch", "Button"}
+    registry = er.async_get(hass)
+    removed = 0
+    for entity in list(registry.entities.values()):
+        if entity.platform != DOMAIN:
+            continue
+        if not entity.unique_id.endswith("_battery"):
+            continue
+        uid_str = entity.unique_id[: -len("_battery")]
+        try:
+            uid = int(uid_str)
+        except ValueError:
+            continue
+        device = coordinator.devices.get(uid)
+        if not device:
+            continue
+        if device.get("type") in blocked_types:
+            _LOGGER.info(
+                "Migration: removing stale battery sensor %s (device type=%s, uid=%s)",
+                entity.entity_id, device.get("type"), uid,
+            )
+            registry.async_remove(entity.entity_id)
+            removed += 1
+    if removed:
+        _LOGGER.info("Migration: removed %d stale battery sensor(s)", removed)
