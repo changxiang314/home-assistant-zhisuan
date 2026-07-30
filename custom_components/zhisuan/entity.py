@@ -97,6 +97,12 @@ class ZhisuanEntity(CoordinatorEntity[ZhisuanCoordinator]):
         node_id = self._node_id or self.device.get("nodeId")
         if node_id is not None:
             attrs["node_id"] = str(node_id)
+        # 如果 cache.extension 是空的（state 同步不到云端），标注
+        ext = (self.device.get("cache") or {}).get("extension") or {}
+        if not ext:
+            attrs["state_sync_warning"] = (
+                "挚算云未同步此设备状态，控制可能有效但状态不会回显"
+            )
         return attrs
 
     # ------------------------------------------------------------------
