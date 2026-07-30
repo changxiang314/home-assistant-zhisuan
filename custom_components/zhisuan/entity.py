@@ -81,9 +81,11 @@ class ZhisuanEntity(CoordinatorEntity[ZhisuanCoordinator]):
 
     @property
     def available(self) -> bool:
-        # 只要求设备在 coordinator 缓存里 + coordinator 上次更新成功。
-        # is_online 单独通过 extra_state_attributes 暴露，不影响可用性。
-        return super().available and self.device is not None
+        # 只要设备在 coordinator 缓存里就视为可用。
+        # 之前检查 super().available（=coordinator.last_update_success）会让部分
+        # entity 在 dashboard 上显示"不可用"，但点进去仍能控制，体验不一致。
+        # 数据陈旧由 super().available 在 coordinator 层把关即可。
+        return self.device is not None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
@@ -97,12 +99,6 @@ class ZhisuanEntity(CoordinatorEntity[ZhisuanCoordinator]):
         node_id = self._node_id or self.device.get("nodeId")
         if node_id is not None:
             attrs["node_id"] = str(node_id)
-        # 如果 cache.extension 是空的（state 同步不到云端），标注
-        ext = (self.device.get("cache") or {}).get("extension") or {}
-        if not ext:
-            attrs["state_sync_warning"] = (
-                "挚算云未同步此设备状态，控制可能有效但状态不会回显"
-            )
         return attrs
 
     # ------------------------------------------------------------------
