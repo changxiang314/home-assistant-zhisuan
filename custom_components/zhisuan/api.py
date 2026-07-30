@@ -21,6 +21,7 @@ from .const import (
     DEVICE_BY_ID_URL,
     DEVICE_CONTROL_URL,
     DEVICE_LIST_URL,
+    DEVICE_QUERY_URL,
     HOME_LIST_URL,
     OAUTH_AUTHORIZE_URL,
     OAUTH_TOKEN_URL,
@@ -255,6 +256,36 @@ class ZhisuanApi:
             data=payload,
             home_id=home_id,
         )
+
+    async def async_query_device(
+        self,
+        user_device_id: int,
+        query_name: str,
+        *,
+        home_id: int,
+        extension: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Query a device's runtime data (e.g. QueryDisconnector → real-time power).
+
+        Response shape: ``{"data": {"deviceCache": ..., "deviceInfo": ...}}``.
+        The interesting field depends on the query:
+        - ``QueryDisconnector`` → ``data.deviceInfo.data`` is a string like
+          ``"47.0"`` (real-time power in watts, or similar)
+        - ``Query`` → ``data.deviceCache`` holds the same structure as the
+          periodic device list response
+        """
+        payload: dict[str, Any] = {
+            "userDeviceId": user_device_id,
+            "name": query_name,
+        }
+        if extension:
+            payload["extension"] = extension
+        resp = await self._async_post_json(
+            DEVICE_QUERY_URL,
+            data=payload,
+            home_id=home_id,
+        )
+        return resp.get("data") or {}
 
     # ------------------------------------------------------------------
     # Webhook 订阅
