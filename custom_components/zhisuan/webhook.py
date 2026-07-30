@@ -27,6 +27,7 @@ from homeassistant.helpers.network import get_url
 from .api import ZhisuanApi, ZhisuanApiError
 from .const import (
     CLOUDFLARED_METRICS_PORT,
+    DEVICE_TYPE_PLUG,
     DOMAIN,
     MSG_TYPE_DEVICE_OFFLINE,
     MSG_TYPE_DEVICE_ONLINE,
@@ -221,6 +222,14 @@ class ZhisuanWebhookView(HomeAssistantView):
                 }
                 if user_device_id is not None and props:
                     coordinator.async_apply_push(user_device_id, props)
+                    # Plug 设备的 on/off 变化时，立刻 query 一次实时功率，
+                    # 这样 power sensor 在 1-2s 内就反映新状态（不用等 60s 轮询）
+                    if "turnOnOff" in props:
+                        device = coordinator.get_device(user_device_id)
+                        if device and device.get("type") == DEVICE_TYPE_PLUG:
+                            self.hass.async_create_task(
+                                coordinator.async_refresh_plug_power(user_device_id)
+                            )
 
             elif msg_type in (MSG_TYPE_DEVICE_ONLINE, MSG_TYPE_DEVICE_OFFLINE):
                 user_device_id = data.get("userDeviceId")
