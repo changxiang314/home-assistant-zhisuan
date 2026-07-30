@@ -33,9 +33,15 @@ from .entity import ZhisuanEntity
 _LOGGER = logging.getLogger(__name__)
 
 # 哪些 type 的设备走 sensor 平台
+# 注意：只保留"真传感器"类型。Light/Plug/Switch/Button 这类开关设备不再创建
+# battery sensor —— 它们在挚算 APP 里能看电量，HA 这边只为它们建一个开关/灯
+# entity 就够；多建 battery sensor 反而让 device 状态被拖累成 unavailable。
 SENSOR_DEVICE_TYPES = {
-    "Sensor", "Detector", "AirMonitor", "AirFresher", "AirPurifier",
-    "Light", "Plug", "Switch", "Button",  # 这些也常有 battery 属性
+    "Sensor",
+    "Detector",
+    "AirMonitor",
+    "AirFresher",
+    "AirPurifier",
 }
 
 # 设备类型 -> 关心的属性（不在这里的不创建 sensor 实体）
@@ -47,10 +53,6 @@ DEVICE_PROP_WHITELIST: dict[str, set[str]] = {
     "AirMonitor": {"PM25", "co2", "temperature", "humidity"},
     "AirFresher": {"PM25", "co2", "temperature", "humidity", "battery"},
     "AirPurifier": {"PM25", "temperature", "humidity"},
-    "Light": {"battery"},
-    "Plug": {"battery"},
-    "Switch": {"battery"},
-    "Button": {"battery"},
 }
 
 
