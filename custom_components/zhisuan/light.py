@@ -130,7 +130,11 @@ class ZhisuanLightEntity(ZhisuanEntity, LightEntity):
     def is_on(self) -> bool | None:
         val = self.ext.get(EXT_TURN_ON_OFF)
         if val is None:
-            return None
+            # 数据缺失时返回 False（不是 None），
+            # 否则 HA 会把 entity 标 unknown/unavailable
+            return False
+        if isinstance(val, str):
+            return val.lower() == "true"
         return bool(val)
 
     @property
