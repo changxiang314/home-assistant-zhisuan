@@ -59,6 +59,14 @@ WEBHOOK_RESUBSCRIBE_INTERVAL: Final = 6 * 3600  # 6h
 # Cloudflared 默认本地 API 端口（Cloudflared Add-on 默认）
 CLOUDFLARED_METRICS_PORT: Final = 2000
 
+# ----- 轮询间隔（秒）-----
+# 主循环（设备列表 + 房间）兜底轮询：webhook 推送漏消息时仍能恢复状态
+DEFAULT_SCAN_INTERVAL: Final = 60
+# Plug 实时功率：cloud 不 push 功率，必须主动 query。
+# 实测 30 次连续 QueryDisconnector 平均 318ms、0 失败，1 个 Plug 5s 一次
+# （≈ 12 次/分钟）对 cloud 完全没压力。改这个值权衡实时性 vs API 配额。
+PLUG_POWER_POLL_INTERVAL: Final = 5.0
+
 # ----- Device actions (挚算 EDeviceAction) -----
 ACTION_QUERY_DISCONNECTOR: Final = "QueryDisconnector"  # 空开/Plug 实时功率
 ACTION_TURN_ON: Final = "TurnOn"
