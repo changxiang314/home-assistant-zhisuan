@@ -83,6 +83,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = ZhisuanCoordinator(hass, entry, api)
     await coordinator.async_config_entry_first_refresh()
 
+    # 启动 Plug 实时功率的高频轮询（独立后台任务，5s 一次）。
+    # cloud 不会主动 push 功率，必须主动 query；用户场景是"插座常开，
+    # 靠功率变化判断设备状态"，所以需要 5s 这种近实时节奏。
+    coordinator.async_start_plug_power_poll()
+
     # 一次性迁移：v1.2.4 之前给 Light/Plug/Switch/Button 错误创建了 battery sensor，
     # 导致这些 device 在 HA 里被标 unavailable。启动时清掉。
     _migrate_stale_battery_sensors(hass, coordinator)
@@ -154,6 +159,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
+        # 停掉 plug power 后台轮询（在 platforms 卸载之后再停，让最后
+        # 一次刷新能 dispatch 到还没卸载的 sensor entity）
+        coordinator = store.get("coordinator") if store else None
+        if coordinator is not None:
+            await coordinator.async_stop_plug_power_poll()
         hass.data[DOMAIN].pop(entry.entry_id, None)
     return unload_ok
 
