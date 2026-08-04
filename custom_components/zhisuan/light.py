@@ -3,14 +3,25 @@
 Capabilities are driven by the device's `actionList`:
 - ``TurnOn``/``TurnOff``     → on/off
 - ``SetBrightness``          → brightness (挚算 0-100 → HA 0-255)
-- ``SetColorTemperature``    → color_temp (挚算 0-100 → HA mireds)
-- ``SetColor``               → RGB color (挚算 color object 格式 # 待验证)
+- ``SetColorTemperature``    → color_temp (挚算 0-100 → HA kelvin)
+- ``SetColor``               → RGB color
+- ``SetBrightnessColorTemperature`` → 组合调光+调色（部分设备支持）
+
+控制 API 关键点（实测 + 文档交叉确认）：
+- 每个属性是**独立的 action name**，不是塞 extension 给 TurnOn：
+  * ``SetBrightness``               name=name + ``extension.brightness``
+  * ``SetColorTemperature``         name=name + ``extension.value`` (注意是 value 不是 colorTemperature)
+  * ``SetBrightnessColorTemperature``  name=name + ``extension.brightness`` + ``extension.colorTemperature``
+  * ``SetColor``                    name=name + ``extension.Red/Green/Blue`` (实测首字母大写，跟文档 red/green/blue 不一致)
+- 设备状态字段（读取用）跟控制字段（写入用）名字不一样：
+  * 状态：``extension.brightness``、``extension.colorTemperature``、``extension.color = {Red, Green, Blue}``
+  * 控制：SetBrightness→brightness, SetColorTemperature→value, SetColor→Red/Green/Blue
 
 NOTE on color_temp:
     挚算 API 文档定义 colorTemperature 为 0-100 的百分比，没有提供
-    K（开尔文）或 mireds 映射。HA 要求 mireds（micro reciprocal degrees）。
+    K（开尔文）或 mireds 映射。HA 要求 kelvin（开尔文）。
     我们按"0 → 冷光（6500K），100 → 暖光（2700K）"做线性插值。
-    实际设备可能不同 — 如有偏差请在校验设备后调整 _COLOR_TEMP_MIREDS_MIN/MAX。
+    实际设备可能不同 — 如有偏差请在校验设备后调整 _COLOR_TEMP_KELVIN_MIN/MAX。
 """
 from __future__ import annotations
 
@@ -30,6 +41,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     ACTION_SET_BRIGHTNESS,
+    ACTION_SET_BRIGHTNESS_COLOR_TEMP,
     ACTION_SET_COLOR,
     ACTION_SET_COLOR_TEMP,
     ACTION_TURN_OFF,
@@ -160,42 +172,89 @@ class ZhisuanLightEntity(ZhisuanEntity, LightEntity):
     def rgb_color(self) -> tuple[int, int, int] | None:
         if ACTION_SET_COLOR not in self._actions:
             return None
-        # 挚算 color 字段是 Object，格式 # 待验证。
-        # 优先按 {"r","g","b"}（0-255）解析；不行再考虑 {"hue","saturation"}。
+        # 实测挚算 color 字段是 {"Red": N, "Green": N, "Blue": N}（首字母大写）
         color = self.ext.get(EXT_COLOR)
         if not isinstance(color, dict):
             return None
-        r = color.get("r")
-        g = color.get("g")
-        b = color.get("b")
+        r = color.get("Red") or color.get("red") or color.get("r")
+        g = color.get("Green") or color.get("green") or color.get("g")
+        b = color.get("Blue") or color.get("blue") or color.get("b")
         if r is not None and g is not None and b is not None:
             return (int(r), int(g), int(b))
         # 兜底：hue/saturation（挚算 hue 范围 0-360，sat 0-100）
-        h = color.get("hue") or color.get("h")
-        s = color.get("saturation") or color.get("s")
+        h = color.get("hue") or color.get("Hue") or color.get("h")
+        s = color.get("saturation") or color.get("Saturation") or color.get("s")
         if h is not None and s is not None:
             from colorsys import hls_to_rgb
 
-            r, g, b = hls_to_rgb(float(h) / 360.0, 0.5, float(s) / 100.0)
-            return (int(r * 255), int(g * 255), int(b * 255))
+            rr, gg, bb = hls_to_rgb(float(h) / 360.0, 0.5, float(s) / 100.0)
+            return (int(rr * 255), int(gg * 255), int(bb * 255))
         return None
 
     # ------------------------------------------------------------------
     # 控制
     # ------------------------------------------------------------------
     async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn on with optional brightness / color_temp / color.
+
+        挚算 API：每个属性是**独立的 action**，字段名也跟状态字段不一样。
+        按以下优先级选 action：
+        1. 调颜色（has color）         → SetColor
+        2. 同时调光+调色（has both）  → SetBrightnessColorTemperature
+        3. 调色温（has temp）         → SetColorTemperature
+        4. 调亮度（has brightness）   → SetBrightness
+        5. 纯开关                      → TurnOn
+        """
+        has_bright = (
+            ATTR_BRIGHTNESS in kwargs
+            and ACTION_SET_BRIGHTNESS in self._actions
+        )
+        has_temp = (
+            ATTR_COLOR_TEMP_KELVIN in kwargs
+            and ACTION_SET_COLOR_TEMP in self._actions
+        )
+        has_color = (
+            ATTR_RGB_COLOR in kwargs
+            and ACTION_SET_COLOR in self._actions
+        )
+
         ext: dict[str, Any] = {}
-        if ATTR_BRIGHTNESS in kwargs and ACTION_SET_BRIGHTNESS in self._actions:
-            ext["brightness"] = int(round(kwargs[ATTR_BRIGHTNESS] / 255.0 * 100))
-        if ATTR_COLOR_TEMP_KELVIN in kwargs and ACTION_SET_COLOR_TEMP in self._actions:
+        if has_color:
+            # 调颜色（实测 extension 字段是 Red/Green/Blue 首字母大写）
+            action = ACTION_SET_COLOR
+            r, g, b = kwargs[ATTR_RGB_COLOR]
+            ext["Red"] = int(r)
+            ext["Green"] = int(g)
+            ext["Blue"] = int(b)
+        elif has_bright and has_temp and (
+            ACTION_SET_BRIGHTNESS_COLOR_TEMP in self._actions
+        ):
+            # 同时调光 + 调色温（部分设备支持，extension 用 brightness + colorTemperature）
+            action = ACTION_SET_BRIGHTNESS_COLOR_TEMP
+            ext["brightness"] = int(
+                round(kwargs[ATTR_BRIGHTNESS] / 255.0 * 100)
+            )
             ext["colorTemperature"] = _kelvin_to_pct(
                 int(kwargs[ATTR_COLOR_TEMP_KELVIN])
             )
-        if ATTR_RGB_COLOR in kwargs and ACTION_SET_COLOR in self._actions:
-            r, g, b = kwargs[ATTR_RGB_COLOR]
-            ext["color"] = {"r": int(r), "g": int(g), "b": int(b)}
+        elif has_temp:
+            # 调色温（注意 extension 字段是 value，不是 colorTemperature）
+            action = ACTION_SET_COLOR_TEMP
+            ext["value"] = _kelvin_to_pct(
+                int(kwargs[ATTR_COLOR_TEMP_KELVIN])
+            )
+        elif has_bright:
+            # 调亮度
+            action = ACTION_SET_BRIGHTNESS
+            ext["brightness"] = int(
+                round(kwargs[ATTR_BRIGHTNESS] / 255.0 * 100)
+            )
+        else:
+            # 纯开关
+            action = ACTION_TURN_ON
+
         await self.coordinator.async_control(
-            self._user_device_id, ACTION_TURN_ON, extension=ext or None
+            self._user_device_id, action, extension=ext or None
         )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
