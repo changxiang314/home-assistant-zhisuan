@@ -20,8 +20,12 @@ Capabilities are driven by the device's `actionList`:
 NOTE on color_temp:
     挚算 API 文档定义 colorTemperature 为 0-100 的百分比，没有提供
     K（开尔文）或 mireds 映射。HA 要求 kelvin（开尔文）。
-    我们按"0 → 冷光（6500K），100 → 暖光（2700K）"做线性插值。
-    实际设备可能不同 — 如有偏差请在校验设备后调整 _COLOR_TEMP_KELVIN_MIN/MAX。
+
+    实测语义（user v1.2.8 反馈）：
+    - value=0  →  暖光 2700K（橙黄）
+    - value=100 → 冷光 6500K（白蓝）
+
+    这跟多数智能灯相反。改映射前请按实际设备重新校准。
 """
 from __future__ import annotations
 
@@ -61,22 +65,25 @@ _LOGGER = logging.getLogger(__name__)
 
 LIGHT_DEVICE_TYPES = {DEVICE_TYPE_LIGHT, DEVICE_TYPE_DIMMER}
 
-# 挚算 colorTemperature 是 0-100 百分比。
-# 假设：0 = 冷光 6500K，100 = 暖光 2700K（多数智能灯的常见映射）。
-# 调宽/调窄请根据实际设备调。
-_COLOR_TEMP_KELVIN_MAX = 6500  # 0% 时
-_COLOR_TEMP_KELVIN_MIN = 2700  # 100% 时
+# 挚算 colorTemperature 字段语义（实测）：
+# value=0   → 暖光 2700K（橙黄）
+# value=100 → 冷光 6500K（白蓝）
+# 跟多数智能灯相反。
+_COLOR_TEMP_KELVIN_MIN = 2700  # value=0 时
+_COLOR_TEMP_KELVIN_MAX = 6500  # value=100 时
 
 
 def _pct_to_kelvin(pct: int | float) -> int:
+    # pct=0 → 2700K（暖）, pct=100 → 6500K（冷）
     return int(
-        _COLOR_TEMP_KELVIN_MAX
-        - pct / 100.0 * (_COLOR_TEMP_KELVIN_MAX - _COLOR_TEMP_KELVIN_MIN)
+        _COLOR_TEMP_KELVIN_MIN
+        + pct / 100.0 * (_COLOR_TEMP_KELVIN_MAX - _COLOR_TEMP_KELVIN_MIN)
     )
 
 
 def _kelvin_to_pct(k: int) -> int:
-    pct = (_COLOR_TEMP_KELVIN_MAX - k) / (
+    # k=2700 → 0（暖）, k=6500 → 100（冷）
+    pct = (k - _COLOR_TEMP_KELVIN_MIN) / (
         _COLOR_TEMP_KELVIN_MAX - _COLOR_TEMP_KELVIN_MIN
     ) * 100
     return max(0, min(100, int(round(pct))))
