@@ -465,16 +465,32 @@ class ZhisuanClimateEntity(ZhisuanEntity, ClimateEntity):
                 self._user_device_id, fan_mode,
             )
             return
-        speed = WIND_SPEED_MAP.get(fan_mode)
-        if speed is None:
+        # 数值映射: auto/0, low/2, medium/3, high/4
+        speed_int = WIND_SPEED_MAP.get(fan_mode)
+        if speed_int is None:
             _LOGGER.warning(
                 "climate[%s] unknown fan_mode: %s",
                 self._user_device_id, fan_mode,
             )
             return
-        # 风速不能开设备（红外无 wind speed 跟此逻辑不同）
-        # 但 mix schema 设备关时直接发 SetWindSpeed 会被设备忽略
-        # 这里给个保险：如果关着，先 TurnOn 再等 0.5s
+        # 字符串映射: virtual sub-AC 用 "HIGH"/"MID"/"LOW" 字符串存 speed
+        # mix schema 用数字存 windSpeed
+        # SetWindSpeed extension 字段实测：
+        #   mix schema: {"value": <int>} 接受
+        #   virtual sub: {"speed": "<HIGH|MID|LOW>"} 接受
+        # AUTO 字符串对 virtual sub 不生效（云端不认），所以 "auto" → 跳过
+        if self._is_virtual_subdevice:
+            speed_str_map = {0: "AUTO", 2: "LOW", 3: "MID", 4: "HIGH"}
+            speed_str = speed_str_map.get(speed_int)
+            if speed_str is None:
+                _LOGGER.warning(
+                    "climate[%s] no string mapping for speed %s", self._user_device_id, speed_int,
+                )
+                return
+            ext = {"speed": speed_str}
+        else:
+            ext = {"value": speed_int}
+        # 如果设备关着，先 TurnOn 再等 0.5s（防止 SetWindSpeed 被设备忽略）
         was_off = self._read_on() is False
         if was_off and not self._is_infrared:
             _LOGGER.debug(
@@ -486,14 +502,13 @@ class ZhisuanClimateEntity(ZhisuanEntity, ClimateEntity):
             )
             await asyncio.sleep(0.5)
         _LOGGER.debug(
-            "climate[%s] set_fan_mode %s -> SetWindSpeed value=%s (was_off=%s)",
-            self._user_device_id, fan_mode, speed, was_off,
+            "climate[%s] set_fan_mode %s -> SetWindSpeed ext=%s (was_off=%s)",
+            self._user_device_id, fan_mode, ext, was_off,
         )
-        # 挚算 API: SetWindSpeed 的 extension 键也是 "value"
         await self.coordinator.async_control(
             self._user_device_id,
             ACTION_SET_WIND_SPEED,
-            extension={"value": speed},
+            extension=ext,
         )
 
     async def async_set_swing_mode(self, swing_mode: str) -> None:
