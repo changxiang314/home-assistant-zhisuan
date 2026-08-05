@@ -82,6 +82,7 @@ ACTION_SET_COLOR: Final = "SetColor"
 ACTION_SET_REVERSE: Final = "SetReverse"
 ACTION_SET_TEMPERATURE: Final = "SetTemperature"
 ACTION_SET_WIND_SPEED: Final = "SetWindSpeed"
+ACTION_SET_SWING: Final = "SetSwing"
 ACTION_SEND_DATA: Final = "SendData"
 
 # ----- Device types (挚算 EDeviceType) — 关注的 -----
