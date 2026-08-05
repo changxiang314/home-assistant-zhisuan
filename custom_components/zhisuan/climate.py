@@ -265,12 +265,16 @@ class ZhisuanClimateEntity(ZhisuanEntity, ClimateEntity):
 
     def _read_on(self) -> bool | None:
         if self._is_virtual_subdevice:
-            ext = self._virtual_state()
-            if "on" in ext:
-                return bool(ext["on"])
-            # 兜底：自己 ext 里的 on（控制一次后会填充）
+            # 优先读子设备 ext（webhook 推的最实时），兜底读父设备 eps[]
             v = self.ext.get("on")
-            return bool(v) if v is not None else None
+            if v is None:
+                ext = self._virtual_state()
+                v = ext.get("on")
+            if v is None:
+                return None
+            if isinstance(v, str):
+                return v.lower() == "true"
+            return bool(v)
         # mix schema
         v = self.ext.get("turnOnOff")
         if v is None:
@@ -281,8 +285,11 @@ class ZhisuanClimateEntity(ZhisuanEntity, ClimateEntity):
 
     def _read_mode(self) -> HVACMode | None:
         if self._is_virtual_subdevice:
-            ext = self._virtual_state()
-            m = ext.get("mode") or self.ext.get("mode")
+            # 优先读子设备 ext，兜底父设备 eps[]
+            m = self.ext.get("mode")
+            if m is None:
+                ext = self._virtual_state()
+                m = ext.get("mode")
             if m is None:
                 return None
             return VIRTUAL_MODE_REVERSE.get(str(m).upper())
@@ -297,10 +304,10 @@ class ZhisuanClimateEntity(ZhisuanEntity, ClimateEntity):
 
     def _read_set_temp(self) -> float | None:
         if self._is_virtual_subdevice:
-            ext = self._virtual_state()
-            t = ext.get("setTemp")
+            t = self.ext.get("setTemp")
             if t is None:
-                t = self.ext.get("setTemp")
+                ext = self._virtual_state()
+                t = ext.get("setTemp")
             try:
                 return float(t) if t is not None else None
             except (TypeError, ValueError):
@@ -316,10 +323,10 @@ class ZhisuanClimateEntity(ZhisuanEntity, ClimateEntity):
 
     def _read_cur_temp(self) -> float | None:
         if self._is_virtual_subdevice:
-            ext = self._virtual_state()
-            t = ext.get("curTemp")
+            t = self.ext.get("curTemp")
             if t is None:
-                t = self.ext.get("curTemp")
+                ext = self._virtual_state()
+                t = ext.get("curTemp")
             try:
                 return float(t) if t is not None else None
             except (TypeError, ValueError):
@@ -335,8 +342,10 @@ class ZhisuanClimateEntity(ZhisuanEntity, ClimateEntity):
 
     def _read_fan_speed(self) -> str | None:
         if self._is_virtual_subdevice:
-            ext = self._virtual_state()
-            s = ext.get("speed") or self.ext.get("speed")
+            s = self.ext.get("speed")
+            if s is None:
+                ext = self._virtual_state()
+                s = ext.get("speed")
             if s is None:
                 return None
             # 字符串 "HIGH"/"MID"/"LOW" → 数值 4/3/2
