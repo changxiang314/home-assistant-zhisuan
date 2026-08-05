@@ -62,10 +62,15 @@ VIRTUAL_PARENT_IDS: Final = frozenset({2879})
 MIX_PARENT_IDS: Final = frozenset({2998})
 
 # 默认模式映射（HA 模式 → 挚算 mode 数值）
-# 这是按常见空调的常见映射；如不一致在 Options flow 里让用户调整
+# v1.3.2 实测 user 设备 2999 (model virtual_AC_3in1_mix#2)：
+#   mode=1 → HEAT，mode=2 → COOL
+# 跟 PDF 文档 7.5 节写的"1=COLE 2=HEAT 3=FAN"相反（COLE 大概率是 COOL typo，
+# 但 user 设备实际数值映射跟文档写的不一样）。
+# 1↔2 对调是经验值，其他设备的 mode 数值可能也不一致——如果你的设备
+# 调模式后实际跑的不对，请把这条反馈给我加进 per-device override。
 DEFAULT_MODE_MAP: dict[HVACMode, int] = {
-    HVACMode.COOL: 1,
-    HVACMode.HEAT: 2,
+    HVACMode.COOL: 2,    # 文档说 1，但实测 2
+    HVACMode.HEAT: 1,    # 文档说 2，但实测 1
     HVACMode.FAN_ONLY: 3,
     HVACMode.DRY: 4,
     HVACMode.AUTO: 5,
