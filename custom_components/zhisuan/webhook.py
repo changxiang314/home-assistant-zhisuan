@@ -41,18 +41,21 @@ WEBHOOK_VIEW_NAME = "api:zhisuan:webhook"
 WEBHOOK_PATH_TEMPLATE = "/api/zhisuan/webhook/{hook_id}"
 
 # 挚算推送的 Notify Object → 我们要用的字段
+# 两种 schema 字段名不同，列在一起：
+# - mix schema (如 2999 AirCondition, Dimmer): turnOnOff, workMode, temperature, windSpeed
+# - virtual sub (MultiInOneManager 2879 下的 2880/2881/2882): on, mode, setTemp, curTemp, speed
 DEVICE_REPORT_KEYS = {
+    # mix schema
     "turnOnOff",
     "brightness",
     "whiteBrightness",
     "colorTemperature",
     "color",
     "position",
-    "temperature",
-    "mode",
-    "operationMode",
-    "windSpeed",
-    "currentTemperature",
+    "temperature",          # mix schema 目标温度
+    "operationMode",        # 窗帘 operationMode (0 关 1 开 2 停)
+    "windSpeed",            # mix schema 风速（数字 0/2/3/4）
+    "currentTemperature",   # mix schema 当前温度
     "humidity",
     "battery",
     "illuminance",
@@ -64,6 +67,14 @@ DEVICE_REPORT_KEYS = {
     "smokeSensorState",
     "gasSensorState",
     "sosState",
+    # virtual sub (暖通多合一 / 地暖多合一 下的虚拟子设备)
+    "on",                   # 开关
+    "mode",                 # 模式（virtual sub 用字符串 "COOL"/"HEAT"/"DRY"；mix schema 不读这个）
+    "setTemp",              # 目标温度
+    "curTemp",              # 当前温度
+    "speed",                # 风速（字符串 "HIGH"/"MID"/"LOW"）
+    "keyValue",             # cloud 复合键，调试用
+    "lastKeyValue",
 }
 
 
