@@ -1,6 +1,7 @@
 """Climate platform for ZhiSuan (挚算智联).
 
-Supports: AirCondition, AirConditionManager, FloorHeating, Infrared(AC).
+Supports: AirCondition, AirConditionManager, FloorHeating, Infrared(AC),
+MultiInOneManager/Panel (暖通多合一 / 地暖多合一 下的虚拟子设备).
 
 # 待验证
 挚算文档明确说明"模式值因设备而异"：
@@ -10,6 +11,7 @@ Supports: AirCondition, AirConditionManager, FloorHeating, Infrared(AC).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Final
 
@@ -26,6 +28,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     ACTION_SET_MODE,
+    ACTION_SET_SWING,
     ACTION_SET_TEMPERATURE,
     ACTION_SET_WIND_SPEED,
     ACTION_TURN_OFF,
@@ -210,6 +213,8 @@ class ZhisuanClimateEntity(ZhisuanEntity, ClimateEntity):
             ACTION_SET_MODE in actions and self._is_infrared
         ):
             features |= ClimateEntityFeature.FAN_MODE
+        if ACTION_SET_SWING in actions:
+            features |= ClimateEntityFeature.SWING_MODE
         self._attr_supported_features = features
 
         # 支持的 HA 模式
@@ -225,6 +230,9 @@ class ZhisuanClimateEntity(ZhisuanEntity, ClimateEntity):
                 HVACMode.AUTO,
             ]
         self._attr_fan_modes = ["auto", "low", "medium", "high"]
+        # SetSwing 是二元开关（PDF §7.12：mode=1 开 / mode=0 关，无中间值）
+        # HA 2026 climate 没单独的 swing on/off 概念，用 preset_mode 兜底
+        self._attr_swing_modes = ["off", "on"]
 
     # ------------------------------------------------------------------
     # 状态读取：按 schema 选字段
@@ -377,23 +385,44 @@ class ZhisuanClimateEntity(ZhisuanEntity, ClimateEntity):
     # ------------------------------------------------------------------
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         if hvac_mode == HVACMode.OFF:
+            _LOGGER.debug(
+                "climate[%s] set_hvac_mode -> OFF", self._user_device_id,
+            )
             await self.coordinator.async_control(
                 self._user_device_id, ACTION_TURN_OFF
             )
             return
         # 先开（用 _read_on 兼容两种 schema）
-        if self._read_on() is False:
+        was_off = self._read_on() is False
+        if was_off:
+            _LOGGER.debug(
+                "climate[%s] set_hvac_mode: device off, sending TurnOn first",
+                self._user_device_id,
+            )
             await self.coordinator.async_control(
                 self._user_device_id, ACTION_TURN_ON
             )
+            # 防 race：设备开机未完成时 SetMode 会被丢
+            await asyncio.sleep(0.5)
         # 设模式
         if ACTION_SET_MODE not in self._actions:
+            _LOGGER.debug(
+                "climate[%s] SetMode not in actionList, skipping",
+                self._user_device_id,
+            )
             return
         # 两种 schema 都用 SetMode + {"mode": int}（按文档 §7.5）
         mode_int = DEFAULT_MODE_MAP.get(hvac_mode)
         if mode_int is None:
-            _LOGGER.warning("Unsupported hvac_mode: %s", hvac_mode)
+            _LOGGER.warning(
+                "climate[%s] unsupported hvac_mode: %s",
+                self._user_device_id, hvac_mode,
+            )
             return
+        _LOGGER.debug(
+            "climate[%s] set_hvac_mode %s -> SetMode mode=%s (was_off=%s)",
+            self._user_device_id, hvac_mode, mode_int, was_off,
+        )
         await self.coordinator.async_control(
             self._user_device_id,
             ACTION_SET_MODE,
@@ -406,6 +435,9 @@ class ZhisuanClimateEntity(ZhisuanEntity, ClimateEntity):
             return
         # 挚算 API: SetTemperature 的 extension 键是 "value"（不是 "temperature"）
         # 来源: zs_cli/commands/openapi/actions.py 第 21 行注释
+        _LOGGER.debug(
+            "climate[%s] set_temperature=%s", self._user_device_id, temp,
+        )
         await self.coordinator.async_control(
             self._user_device_id,
             ACTION_SET_TEMPERATURE,
@@ -414,15 +446,56 @@ class ZhisuanClimateEntity(ZhisuanEntity, ClimateEntity):
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         if ACTION_SET_WIND_SPEED not in self._actions:
+            _LOGGER.debug(
+                "climate[%s] SetWindSpeed not in actionList, fan_mode=%s ignored",
+                self._user_device_id, fan_mode,
+            )
             return
         speed = WIND_SPEED_MAP.get(fan_mode)
         if speed is None:
+            _LOGGER.warning(
+                "climate[%s] unknown fan_mode: %s",
+                self._user_device_id, fan_mode,
+            )
             return
+        # 风速不能开设备（红外无 wind speed 跟此逻辑不同）
+        # 但 mix schema 设备关时直接发 SetWindSpeed 会被设备忽略
+        # 这里给个保险：如果关着，先 TurnOn 再等 0.5s
+        was_off = self._read_on() is False
+        if was_off and not self._is_infrared:
+            _LOGGER.debug(
+                "climate[%s] set_fan_mode: device off, sending TurnOn first",
+                self._user_device_id,
+            )
+            await self.coordinator.async_control(
+                self._user_device_id, ACTION_TURN_ON
+            )
+            await asyncio.sleep(0.5)
+        _LOGGER.debug(
+            "climate[%s] set_fan_mode %s -> SetWindSpeed value=%s (was_off=%s)",
+            self._user_device_id, fan_mode, speed, was_off,
+        )
         # 挚算 API: SetWindSpeed 的 extension 键也是 "value"
         await self.coordinator.async_control(
             self._user_device_id,
             ACTION_SET_WIND_SPEED,
             extension={"value": speed},
+        )
+
+    async def async_set_swing_mode(self, swing_mode: str) -> None:
+        if ACTION_SET_SWING not in self._actions:
+            return
+        # swing_mode 是 "off" 或 "on"（HA 标准值）
+        # 挚算 SetSwing 文档：mode=1 开 / mode=0 关
+        swing_int = 1 if swing_mode == "on" else 0
+        _LOGGER.debug(
+            "climate[%s] set_swing_mode %s -> SetSwing mode=%s",
+            self._user_device_id, swing_mode, swing_int,
+        )
+        await self.coordinator.async_control(
+            self._user_device_id,
+            ACTION_SET_SWING,
+            extension={"mode": swing_int},
         )
 
     async def async_turn_on(self) -> None:
