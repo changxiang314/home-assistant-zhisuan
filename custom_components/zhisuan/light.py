@@ -227,12 +227,14 @@ class ZhisuanLightEntity(ZhisuanEntity, LightEntity):
 
         ext: dict[str, Any] = {}
         if has_color:
-            # 调颜色（实测 extension 字段是 Red/Green/Blue 首字母大写）
+            # 调颜色（挚算 SetColor 的 extension 字段是小写 red/green/blue，范围 0-255。
+            # 核对来源：官方 zs-openapi CLI actions.py + 服务端 DxDeviceControlServiceImpl.java。
+            # 注意不要写成 Red/Green/Blue 大写 —— 服务端找不到 red 参数会返回 421。）
             action = ACTION_SET_COLOR
             r, g, b = kwargs[ATTR_RGB_COLOR]
-            ext["Red"] = int(r)
-            ext["Green"] = int(g)
-            ext["Blue"] = int(b)
+            ext["red"] = int(r)
+            ext["green"] = int(g)
+            ext["blue"] = int(b)
         elif has_bright and has_temp and (
             ACTION_SET_BRIGHTNESS_COLOR_TEMP in self._actions
         ):
