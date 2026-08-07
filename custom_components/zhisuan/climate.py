@@ -107,6 +107,10 @@ VIRTUAL_MODE_REVERSE: Final[dict[str, HVACMode]] = {
     "DRY": HVACMode.DRY,
     "AUTO": HVACMode.AUTO,
     "WIND": HVACMode.FAN_ONLY,  # 备用别名
+    # 实测主卧空调 2880 (virtual sub-AC)：云端除湿模式返回完整英文名
+    # "DEHUMIDIFICATION"，不是 "DRY"。缺它时查表 miss → HA state=unknown。
+    "DEHUMIDIFICATION": HVACMode.DRY,
+    "DEHUMIDIFY": HVACMode.DRY,  # 备用别名
 }
 VIRTUAL_MODE_MAP: Final[dict[HVACMode, int]] = {
     HVACMode.COOL: 1,
