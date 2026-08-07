@@ -65,6 +65,15 @@ _LOGGER = logging.getLogger(__name__)
 
 LIGHT_DEVICE_TYPES = {DEVICE_TYPE_LIGHT, DEVICE_TYPE_DIMMER}
 
+# 设备能力校正表：云端 actionList 与实际硬件不符的设备，按 userDeviceId 剔除谎报的 action。
+# 案例：客厅灯带(2905, model 6023) 的 actionList 谎报支持 SetColor(RGB)，
+#   实际只支持双色温（无 RGB 灯珠）。若不剔除，HA 会把它声明为彩色灯，
+#   任何调色命令（自适应照明/手动调色）都被设备忽略，导致"打不开"。
+#   注意：主卧灯带(2907/2891) 同为 model 6023 但真彩色，保留 SetColor。
+CAPABILITY_OVERRIDES: dict[int, set[str]] = {
+    2905: {ACTION_SET_COLOR},
+}
+
 # 挚算 colorTemperature 字段语义（实测）：
 # value=0   → 暖光 2700K（橙黄）
 # value=100 → 冷光 6500K（白蓝）
@@ -125,6 +134,15 @@ class ZhisuanLightEntity(ZhisuanEntity, LightEntity):
         super().__init__(coordinator, user_device_id, node_id=node_id)
         device = self.device or {}
         actions: set[str] = set(device.get("actionList") or [])
+        # 应用设备能力校正（剔除云端谎报的 action）
+        removed = CAPABILITY_OVERRIDES.get(user_device_id)
+        if removed:
+            actions -= removed
+            _LOGGER.warning(
+                "设备 %s 能力校正：剔除 %s（云端 actionList 与实际硬件不符）",
+                user_device_id,
+                sorted(removed),
+            )
         # 决定 HA color_mode
         if ACTION_SET_COLOR in actions:
             self._attr_color_mode = ColorMode.RGB
