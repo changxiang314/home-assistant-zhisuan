@@ -90,7 +90,11 @@ WIND_SPEED_MAP: dict[str, int] = {
 WIND_SPEED_REVERSE: dict[int, str] = {v: k for k, v in WIND_SPEED_MAP.items()}
 
 # ----- 虚拟子设备 schema（MultiInOneManager 3210 下，model 包含 virtual_AC_3in1） -----
-# extension 字段名不同，且子设备 state 通常为空 → 状态从父设备 eps[] 数组读
+# 字段名映射，仅供阅读（代码里直接按字面量取值）：
+#   虚拟子设备 extension: on / mode / setTemp / curTemp / speed / nodeId
+#   mix schema  extension: turnOnOff / workMode / temperature / currentTemperature / windSpeed
+# 注意：写入模式的数值映射两种 schema 都走 DEFAULT_MODE_MAP，不存在单独的虚拟映射表
+# （历史上有过 VIRTUAL_MODE_MAP=COOL:1，与实测的 COOL:2 矛盾且从未被引用，已删除）。
 VIRTUAL_FIELD_NAMES: Final[dict[str, str]] = {
     "on": "on",
     "mode": "mode",
@@ -99,7 +103,7 @@ VIRTUAL_FIELD_NAMES: Final[dict[str, str]] = {
     "speed": "speed",
     "node_id": "nodeId",
 }
-# 字符串 mode 名称 → HA 模式
+# 虚拟子设备的 mode 是字符串（不是数字），读状态时用这张表反查
 VIRTUAL_MODE_REVERSE: Final[dict[str, HVACMode]] = {
     "COLD": HVACMode.COOL,
     "HOT": HVACMode.HEAT,
@@ -112,26 +116,13 @@ VIRTUAL_MODE_REVERSE: Final[dict[str, HVACMode]] = {
     "DEHUMIDIFICATION": HVACMode.DRY,
     "DEHUMIDIFY": HVACMode.DRY,  # 备用别名
 }
-VIRTUAL_MODE_MAP: Final[dict[HVACMode, int]] = {
-    HVACMode.COOL: 1,
-    HVACMode.HEAT: 2,
-    HVACMode.FAN_ONLY: 3,
-    HVACMode.DRY: 4,
-    HVACMode.AUTO: 5,
-}
-# 字符串 speed 名称 → 数值
+# 字符串 speed 名称 → 数值（数值语义见 WIND_SPEED_MAP）
 VIRTUAL_SPEED_REVERSE: Final[dict[str, int]] = {
     "HIGH": 4,
     "MID": 3,
     "MIDDLE": 3,
     "LOW": 2,
     "AUTO": 0,
-}
-VIRTUAL_SPEED_MAP: Final[dict[str, int]] = {
-    "auto": 0,
-    "low": 2,
-    "medium": 3,
-    "high": 4,
 }
 
 # 红外空调伴侣：状态从设备读不到

@@ -4,6 +4,21 @@
 
 ---
 
+## 推荐安装方式：HACS
+
+1. HACS → 右上角三点 → `Custom repositories`
+2. 填 `https://github.com/changxiang314/home-assistant-zhisuan`，类别选 `Integration`
+3. 搜索「挚算智联」→ Download
+4. 重启 Home Assistant
+5. `设置 → 设备与服务 → 添加集成`，搜「zhisuan」或「挚算智联」
+6. 填 Client ID / Client Secret / 挚算账号 / 密码，环境选 `prod`
+
+**以后升级**：HACS 里点 Update → 重启 HA。不用重新配置。
+
+> 本文档下面的手工部署流程（Samba + Cloudflared）是 HACS 之前的做法，仅作参考 / 排障用。
+
+---
+
 ## 你要准备的东西
 
 - 一台跑 HA OS 完整版的 Home Assistant 主机（你已经有了）
@@ -141,33 +156,45 @@ config/
 
 ```
 zhisuan-ha/
-├── AGENTS.md           ← 项目规范（开发者视角）
-├── README.md           ← 本文件（用户视角）
+├── HANDOFF.md          ← 交接说明（接手的人/工具先读这个）
+├── AGENTS.md           ← 给 AI Agent 的项目规范
+├── README.md           ← 本文件（用户视角：怎么装）
+├── docs/
+│   ├── api-quirks.md   ← 挚算云真实行为手册（官方文档有错，以这份为准）
+│   ├── architecture.md ← 代码结构与数据流
+│   ├── testing.md      ← 测试方法论
+│   └── device-inventory.md  ← 设备实测清单
 ├── custom_components/
 │   └── zhisuan/        ← HA 集成代码
 └── tools/
-    └── selftest.py     ← 自测脚本
+    ├── probe_devices.py ← 设备能力探测器（排障第一工具）
+    ├── test_logic.py    ← 逻辑桩测试（不需要装 HA）
+    └── selftest.py      ← 早期自测脚本
 ```
 
 ---
 
 ## 已知限制
 
-- **空调模式值**因设备而异，默认按常见空调的 1=COOL/2=HEAT/3=FAN 映射；如不一致在 `climate.py` 的 `DEFAULT_MODE_MAP` 改
+- **空调模式数值已按实测校准**（`climate.py` 的 `DEFAULT_MODE_MAP`，与官方文档相反）。
+  换设备后如果模式方向不对，用 `tools/probe_devices.py` 重新探测后改这张表
+- **灯的双色温语义与常识相反**：`colorTemperature` 0=暖光 2700K，100=冷光 6500K
+- **虚拟子设备空调的风速「自动」档无效**：云端不认 `AUTO` 字符串，只认 高/中/低
 - **多路设备**（如多路灯控）每个子路会建独立 HA 实体，命名带 `_1`/`_2`
 - **红外空调伴侣**是单向的，HA 里看到的开关/温度状态不可信（设备没法回传）
-- **API 限流**未在挚算文档中明确，集成默认每 60s 兜底轮询一次全量；如发现被限流请调大 coordinator 的 `DEFAULT_SCAN_INTERVAL`
-- **Cloudflared trycloudflare URL 每次重启会变**，集成启动时会自动重订阅
+- **Plug 功率靠 5 秒轮询**：云端不推送功率变化，只能主动查询
+- **API 限流**未在挚算文档中明确；实测 5 秒轮询 1 台设备完全无压力
+- **公网 Webhook URL 变化**：集成启动时会自动重新订阅，URL 漂移后 6 小时内自动收敛
 
 ---
 
 ## 升级
 
-以后改代码后：
-1. 重新把 `custom_components/zhisuan` 整个文件夹拖到 HA 共享盘
-2. HA `Developer Tools` → `Restart` 重启
-3. 不需要重新配置集成
+**HACS 用户**：HACS → 挚算智联 → Update → 重启 HA。不需要重新配置集成。
+
+**手工部署的**：重新把 `custom_components/zhisuan` 整个文件夹拖到 HA 共享盘 → 重启 HA。
 
 ---
 
-有问题随时找我，把 HA 日志和 Cloudflared 日志贴过来我看。
+出问题时，把 HA 日志（`设置 → 系统 → 日志`，搜 "zhisuan"）和具体现象贴出来。
+
