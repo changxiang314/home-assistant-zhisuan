@@ -7,6 +7,10 @@ Capabilities are driven by the device's `actionList`:
 - ``SetColor``               → RGB color
 - ``SetBrightnessColorTemperature`` → 组合调光+调色（部分设备支持）
 
+双模式设备（同时有 SetColor + SetColorTemperature，如主卧灯带 2907/2891）
+必须声明 ``supported_color_modes = {COLOR_TEMP, RGB}``，否则 HA 只显示调色盘、
+没有色温滑块。``color_mode`` 需动态返回当前生效模式（HA 用它决定渲染哪套控件）。
+
 控制 API 关键点（实测 + 文档交叉确认）：
 - 每个属性是**独立的 action name**，不是塞 extension 给 TurnOn：
   * ``SetBrightness``               name=name + ``extension.brightness``
@@ -144,25 +148,68 @@ class ZhisuanLightEntity(ZhisuanEntity, LightEntity):
                 sorted(removed),
             )
         # 决定 HA color_mode
-        if ACTION_SET_COLOR in actions:
+        self._supports_rgb = ACTION_SET_COLOR in actions
+        self._supports_color_temp = ACTION_SET_COLOR_TEMP in actions
+        # 双模式设备（RGB + 色温）上次使用的模式；None 表示还没被用户指定过
+        self._last_color_mode: ColorMode | None = None
+
+        if self._supports_rgb and self._supports_color_temp:
+            # 双模式：彩色 + 双色温（主卧灯带 2907/2891, model 6023）
+            # 两种都声明，HA 的 more-info 会同时给出调色盘和色温滑块
+            self._single_color_mode = ColorMode.COLOR_TEMP
+            self._attr_color_mode = ColorMode.COLOR_TEMP
+            self._attr_supported_color_modes = {
+                ColorMode.COLOR_TEMP,
+                ColorMode.RGB,
+            }
+        elif self._supports_rgb:
+            self._single_color_mode = ColorMode.RGB
             self._attr_color_mode = ColorMode.RGB
             self._attr_supported_color_modes = {ColorMode.RGB}
-        elif ACTION_SET_COLOR_TEMP in actions:
+        elif self._supports_color_temp:
+            self._single_color_mode = ColorMode.COLOR_TEMP
             self._attr_color_mode = ColorMode.COLOR_TEMP
             self._attr_supported_color_modes = {ColorMode.COLOR_TEMP}
         elif ACTION_SET_BRIGHTNESS in actions:
+            self._single_color_mode = ColorMode.BRIGHTNESS
             self._attr_color_mode = ColorMode.BRIGHTNESS
             self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
         else:
+            self._single_color_mode = ColorMode.ONOFF
             self._attr_color_mode = ColorMode.ONOFF
             self._attr_supported_color_modes = {ColorMode.ONOFF}
 
         self._attr_name = None  # 用 device name
         self._actions = actions
 
+        # 把设备真实色温区间告诉 HA，滑块/自适应照明都按这个范围钳制
+        if self._supports_color_temp:
+            self._attr_min_color_temp_kelvin = _COLOR_TEMP_KELVIN_MIN
+            self._attr_max_color_temp_kelvin = _COLOR_TEMP_KELVIN_MAX
+
     # ------------------------------------------------------------------
     # 状态读取
     # ------------------------------------------------------------------
+    @property
+    def color_mode(self) -> ColorMode:
+        """当前生效的调光模式。
+
+        双模式设备必须动态返回：HA 用它决定 more-info 里显示色温滑块还是调色盘，
+        并且会校验返回值必须在 supported_color_modes 里。
+        """
+        if self._supports_rgb and self._supports_color_temp:
+            if self._last_color_mode is not None:
+                return self._last_color_mode
+            # 云端 dynamicId > 0 表示设备正在跑动态彩色效果 → 视为 RGB 模式
+            try:
+                if int(self.ext.get("dynamicId") or 0) > 0:
+                    return ColorMode.RGB
+            except (TypeError, ValueError):
+                pass
+            # 默认色温模式（设备始终上报合法的 colorTemperature）
+            return ColorMode.COLOR_TEMP
+        return self._single_color_mode
+
     @property
     def is_on(self) -> bool | None:
         val = self.ext.get(EXT_TURN_ON_OFF)
@@ -253,6 +300,8 @@ class ZhisuanLightEntity(ZhisuanEntity, LightEntity):
             ext["red"] = int(r)
             ext["green"] = int(g)
             ext["blue"] = int(b)
+            # 双模式设备：切到 RGB 模式
+            self._last_color_mode = ColorMode.RGB
         elif has_bright and has_temp and (
             ACTION_SET_BRIGHTNESS_COLOR_TEMP in self._actions
         ):
@@ -264,14 +313,18 @@ class ZhisuanLightEntity(ZhisuanEntity, LightEntity):
             ext["colorTemperature"] = _kelvin_to_pct(
                 int(kwargs[ATTR_COLOR_TEMP_KELVIN])
             )
+            # 双模式设备：切到色温模式
+            self._last_color_mode = ColorMode.COLOR_TEMP
         elif has_temp:
             # 调色温（注意 extension 字段是 value，不是 colorTemperature）
             action = ACTION_SET_COLOR_TEMP
             ext["value"] = _kelvin_to_pct(
                 int(kwargs[ATTR_COLOR_TEMP_KELVIN])
             )
+            # 双模式设备：切到色温模式
+            self._last_color_mode = ColorMode.COLOR_TEMP
         elif has_bright:
-            # 调亮度
+            # 调亮度（不改变当前彩色/色温模式）
             action = ACTION_SET_BRIGHTNESS
             ext["brightness"] = int(
                 round(kwargs[ATTR_BRIGHTNESS] / 255.0 * 100)
