@@ -44,12 +44,6 @@ DEVICE_QUERY_URL: Final = "/v1/device/query"
 SUBSCRIBE_URL: Final = "/v1/subscribe"
 UNSUBSCRIBE_URL: Final = "/v1/subscribe/{home_id}"  # noqa: S105
 
-# ----- 场景（Scene）端点 -----
-# 实测 2026-11：GET /v1/scene 返回 data.sceneList；POST /v1/scene/action 执行场景。
-# 官方 PDF §10.2/§10.3 与实测一致（body 就是 {"sceneId": N}）。
-SCENE_LIST_URL: Final = "/v1/scene"
-SCENE_ACTION_URL: Final = "/v1/scene/action"
-
 # ----- HTTP request defaults -----
 DEFAULT_TIMEOUT: Final = 30  # seconds
 DEFAULT_LANGUAGE: Final = "zh"
@@ -143,22 +137,6 @@ DEVICE_TYPE_TO_HA_PLATFORM: Final = {
     DEVICE_TYPE_MULTI_IN_ONE_MANAGER: "climate", # 暖通多合一
     # Host / Gateway / Moore / Button / Webcam / DoorLock / DoorBell / AirPurifier / Disconnector 暂不实现（基础设施或未支持）
 }
-
-# ----- 场景（Scene）-----
-# 只有 manual=true 的场景才做成 HA 场景实体：
-# - manual=true  → 用户在挚算 APP 里手动触发的一组动作（离家模式 / 回家模式 / 睡眠模式…）
-# - manual=false → 多控（MultiControl）或定时（Schedule）场景，触发器是设备状态或定时器，
-#                  在 HA 里点一下没有意义（触发器不在 HA 这边），所以不暴露。
-# 实测 2026-11-16：homeId=185 共 22 个场景，其中 manual=true 的 11 个，manual=false 的 11 个。
-SCENE_MANUAL_ONLY: Final = True
-
-# 场景类型（挚算 ESceneType）
-SCENE_TYPE_NORMAL: Final = "Normal"
-SCENE_TYPE_MULTI_CONTROL: Final = "MultiControl"
-
-# ----- 本集成自定义服务 -----
-# 手动重新拉取云端场景列表（正常情况下每 60s 自动刷新一次，这里是给急用时点的）
-SERVICE_REFRESH_SCENES: Final = "refresh_scenes"
 
 # ----- Sensor / Detector 属性 → HA sensor 平台 + 字段 -----
 # value 来自 device.cache.extension[key]

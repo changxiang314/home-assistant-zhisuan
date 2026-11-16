@@ -27,8 +27,6 @@ from .const import (
     OAUTH_TOKEN_URL,
     REGISTER_URL,
     ROOM_LIST_URL,
-    SCENE_ACTION_URL,
-    SCENE_LIST_URL,
     SUBSCRIBE_URL,
     TOKEN_REFRESH_MARGIN,
     UNSUBSCRIBE_URL,
@@ -47,23 +45,6 @@ class ZhisuanAuthError(ZhisuanApiError):
 
 class ZhisuanConnectionError(ZhisuanApiError):
     """Network / connection error."""
-
-
-def as_bool(value: Any) -> bool | None:
-    """Coerce a cloud field to bool, or None when it is not a boolean.
-
-    The cloud is inconsistent about booleans: some fields come back as real
-    JSON booleans, some as the strings "true"/"false".
-    """
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        low = value.strip().lower()
-        if low in ("true", "1", "yes"):
-            return True
-        if low in ("false", "0", "no"):
-            return False
-    return None
 
 
 class ZhisuanApi:
@@ -305,57 +286,6 @@ class ZhisuanApi:
             home_id=home_id,
         )
         return resp.get("data") or {}
-
-    # ------------------------------------------------------------------
-    # 场景（Scene）
-    # ------------------------------------------------------------------
-    async def async_get_scenes(
-        self,
-        home_id: int,
-        *,
-        manual: bool | None = None,
-    ) -> list[dict[str, Any]]:
-        """Get the home's cloud scenes.
-
-        Response shape: ``{"data": {"sceneList": [Scene, ...]}}``.
-
-        Each Scene carries ``sceneId`` / ``sceneName`` / ``sceneType`` /
-        ``roomId`` / ``roomName`` / ``manual`` / ``triggerList`` / ``actionList``.
-
-        The ``manual`` query filter works on the cloud (measured 2026-11-16:
-        ``?manual=true`` returned 11 of 22 scenes), but the result is filtered
-        client-side too, so a cloud-side change to the filter cannot silently
-        drop entities.
-        """
-        params: dict[str, Any] = {}
-        if manual is not None:
-            params["manual"] = "true" if manual else "false"
-        resp = await self._async_get(
-            SCENE_LIST_URL, params=params, home_id=home_id
-        )
-        scenes = (resp.get("data") or {}).get("sceneList") or []
-        if manual is not None:
-            scenes = [s for s in scenes if as_bool(s.get("manual")) is manual]
-        return scenes
-
-    async def async_execute_scene(self, home_id: int, scene_id: int) -> None:
-        """Execute a cloud scene.
-
-        Endpoint: ``POST /v1/scene/action`` with body ``{"sceneId": N}``.
-        The cloud acks synchronously, then drives the devices; the resulting
-        device state changes come back through the webhook.
-
-        WARNING (measured 2026-11-16): executing a scene really changes the
-        home. A scene whose action is ``SetBrightnessColorTemperature`` also
-        switches the light ON — it is not a "brightness only, light stays off"
-        operation. Never call this from a test without checking the target
-        device state first.
-        """
-        await self._async_post_json(
-            SCENE_ACTION_URL,
-            data={"sceneId": scene_id},
-            home_id=home_id,
-        )
 
     # ------------------------------------------------------------------
     # Webhook 订阅

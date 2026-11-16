@@ -8,9 +8,9 @@ custom_components/zhisuan/
 ├── const.py             所有常量：endpoint、device type、action 名、字段名
 ├── api.py               挚算云 HTTP 客户端（OAuth + REST + 401 自动重登）
 ├── config_flow.py       UI 配置流程（填 clientId/secret/账号/密码/环境）
-├── coordinator.py       数据中枢：设备缓存 + 主轮询 + Plug 功率高频轮询 + 场景缓存
+├── coordinator.py       数据中枢：设备缓存 + 主轮询 + Plug 功率高频轮询
 ├── webhook.py           入站推送接收 + 公网 URL 解析 + 订阅维护
-├── __init__.py          生命周期入口（setup / unload / 迁移 / 自定义服务）
+├── __init__.py          生命周期入口（setup / unload / 迁移）
 ├── entity.py            所有实体的基类（device_info / available / ext 快捷方式）
 ├── switch.py            开关、插座、快捷面板
 ├── light.py             灯（开/关、调光、调色温、RGB、双模式）
@@ -18,7 +18,6 @@ custom_components/zhisuan/
 ├── climate.py           空调、地暖、多合一（两种 schema）
 ├── sensor.py            数值传感器 + Plug 实时功率
 ├── binary_sensor.py     门磁/人体/水浸/烟感/燃气/SOS
-├── scene.py             云端手动场景（v1.4.0+）
 └── translations/zh-Hans.json
 ```
 
@@ -31,8 +30,6 @@ custom_components/zhisuan/
                        ↑ 控制 POST /v1/device/control
                        │ 拉取 GET  /v1/device (分页)
                        │ 查询 POST /v1/device/query (QueryDisconnector)
-                       │ 场景 GET  /v1/scene
-                       │ 场景 POST /v1/scene/action
                        │ 订阅 POST /v1/subscribe
                        ↓ 推送 DeviceReport / Online / Offline
    ┌──────────────────────────────────────────────────────┐
@@ -103,47 +100,19 @@ custom_components/zhisuan/
 
 `CAPABILITY_OVERRIDES`：云端 `actionList` 谎报时按 `userDeviceId` 剔除。加新条目要**注释写清为什么**。
 
-## 场景平台（v1.4.0+）
-
-场景**不是设备**，是"一组设备动作的命名集合"，所以：
-
-- 不走 `DEVICE_TYPE_TO_HA_PLATFORM`，直接单独一个 `scene` 平台
-- 实体不继承 `ZhisuanEntity`（那个基类假设有 `userDeviceId` 对应的设备），
-  直接继承 HA 的 `Scene`，实现 `async_activate()`
-- `unique_id` = `scene_{sceneId}`（和设备的纯数字 id 不会撞）
-
-```
-coordinator._scenes: dict[int, Scene]      ← 只存 manual=true 的
-  ↑ 每 60s 随设备列表一起刷新（async_refresh_scenes）
-  ↓ scene 平台在 setup 时把缓存里的场景建成实体
-新场景 → coordinator 检测到 sceneId 不在缓存里
-       → set_scene_sink() 的回调 → async_add_entities() 动态加实体
-       → 用户在 APP 里建场景，最多 60s 后自动出现在 HA，不用重启
-```
-
-**只暴露 `manual=true`**：多控场景和定时场景的触发器在云端，
-在 HA 里点一下没有意义（触发条件不在这边）。
-
-`scene.turn_on` 服务 → HA 的 `Scene._async_activate()` → 我们的 `async_activate()`
-→ `POST /v1/scene/action {"sceneId": N}` → 云端异步驱动设备 →
-设备状态变化通过 webhook 回来，灯/开关/窗帘实体自动更新。
-
-⚠️ 执行场景**会真的动家里的设备**，而且 `SetBrightnessColorTemperature` 会隐式开灯。
-
 ## 生命周期（`__init__.py`）
 
 ```
 async_setup_entry
   ├─ 建 ZhisuanApi + OAuth 登录（失败 → ConfigEntryNotReady，HA 会自动重试）
   ├─ token 持久化到 config entry（重启后不必重新登录）
-  ├─ 建 Coordinator + 首次刷新（含场景列表）
+  ├─ 建 Coordinator + 首次刷新
   ├─ _migrate_stale_battery_sensors()   ← 历史遗留实体清理
   ├─ 启动 Plug 功率 5s 轮询任务
   ├─ 注册 webhook view（hass.http.register_view）
   ├─ POST /v1/subscribe（失败不阻塞 setup，后台循环会重试）
   ├─ 启动 6 小时重订阅循环
-  ├─ 转发到各平台（switch/light/cover/climate/sensor/binary_sensor/scene）
-  └─ 注册 zhisuan.refresh_scenes 服务（手动拉场景）
+  └─ 转发到各平台（switch/light/cover/climate/sensor/binary_sensor）
 
 async_unload_entry
   ├─ 停重订阅循环 + 取消任务

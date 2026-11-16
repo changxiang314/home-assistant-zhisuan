@@ -56,33 +56,6 @@ def build_ha_stubs() -> None:
     comps = mod("homeassistant.components")
     helpers = mod("homeassistant.helpers")
 
-    # --- aiohttp ---
-    # api.py 在模块顶层 import aiohttp。真装 aiohttp 会让这个测试多一个依赖，
-    # 所以这里造一个最小桩：只有类型标注和异常类会被用到。
-    aiohttp_mod = mod("aiohttp")
-
-    class ClientError(Exception):
-        pass
-
-    class ClientResponseError(ClientError):
-        pass
-
-    class ClientTimeout:
-        def __init__(self, total=None):
-            self.total = total
-
-    class ClientSession:
-        pass
-
-    class ClientConnectorError(ClientError):
-        pass
-
-    aiohttp_mod.ClientError = ClientError
-    aiohttp_mod.ClientResponseError = ClientResponseError
-    aiohttp_mod.ClientTimeout = ClientTimeout
-    aiohttp_mod.ClientSession = ClientSession
-    aiohttp_mod.ClientConnectorError = ClientConnectorError
-
     # --- homeassistant.components.light ---
     light_mod = mod("homeassistant.components.light")
     light_mod.ATTR_BRIGHTNESS = "brightness"
@@ -182,55 +155,6 @@ def build_ha_stubs() -> None:
     climate_mod.ClimateEntityFeature = ClimateEntityFeature
     climate_mod.ClimateEntity = ClimateEntity
 
-    # --- homeassistant.components.scene ---
-    scene_mod = mod("homeassistant.components.scene")
-
-    class Scene:
-        """最小 Scene 桩。
-
-        真实 HA 里 `Scene` 继承 RestoreEntity → Entity，
-        集成只需实现 `async_activate()`。
-        """
-
-        _attr_should_poll = False
-        _attr_name = None
-        _attr_unique_id = None
-        _attr_icon = None
-
-        def __init__(self, *a, **k):
-            pass
-
-        @property
-        def name(self):
-            return self._attr_name
-
-        @property
-        def unique_id(self):
-            return self._attr_unique_id
-
-        @property
-        def icon(self):
-            return self._attr_icon
-
-        async def async_added_to_hass(self):
-            pass
-
-        def async_on_remove(self, func):
-            pass
-
-        def async_write_ha_state(self):
-            pass
-
-    scene_mod.Scene = Scene
-
-    # --- homeassistant.exceptions ---
-    exc_mod = mod("homeassistant.exceptions")
-
-    class HomeAssistantError(Exception):
-        pass
-
-    exc_mod.HomeAssistantError = HomeAssistantError
-
     # --- homeassistant.const ---
     const_mod = mod("homeassistant.const")
 
@@ -302,11 +226,9 @@ def build_ha_stubs() -> None:
     ha.core = core
     comps.light = light_mod
     comps.climate = climate_mod
-    comps.scene = scene_mod
     helpers.update_coordinator = uc
     helpers.device_registry = dr
     helpers.entity_platform = ep
-    ha.exceptions = exc_mod
 
 
 # ---------------------------------------------------------------------------
@@ -327,7 +249,7 @@ def load_integration():
         return module
 
     # 依赖顺序：const → api → coordinator → entity → 各平台
-    for name in ("const", "api", "coordinator", "entity", "light", "climate", "scene"):
+    for name in ("const", "api", "coordinator", "entity", "light", "climate"):
         load(name)
     return pkg
 
@@ -336,37 +258,15 @@ def load_integration():
 # 3. 假 coordinator
 # ---------------------------------------------------------------------------
 class FakeCoordinator:
-    def __init__(self, devices, scenes=None):
+    def __init__(self, devices):
         self.devices = devices
-        self.scenes = scenes or {}
         self.calls = []
-        self.scene_calls = []
-        self.last_update_success = True
-        self.scene_sink = None
-        self.listeners = []
 
     def get_device(self, uid):
         return self.devices.get(uid)
 
     def get_room_name(self, rid):
         return None
-
-    def get_scene(self, scene_id):
-        return self.scenes.get(scene_id)
-
-    def set_scene_sink(self, sink):
-        self.scene_sink = sink
-
-    def async_add_listener(self, cb):
-        self.listeners.append(cb)
-
-        def _remove():
-            self.listeners.remove(cb)
-
-        return _remove
-
-    async def async_activate_scene(self, scene_id):
-        self.scene_calls.append(scene_id)
 
     async def async_control(self, uid, action, extension=None):
         self.calls.append({"uid": uid, "action": action, "extension": extension})
@@ -647,135 +547,6 @@ def run() -> None:
         check("关机 → TurnOff", coord.calls[-1]["action"] == "TurnOff")
 
     asyncio.run(climate_controls())
-
-    # ---------------- 场景 ----------------
-    section("场景：命名与唯一性")
-    scenes = {
-        160348: {
-            "sceneId": 160348, "sceneName": "离家模式", "roomName": "客厅",
-            "sceneType": "Normal", "manual": True,
-            "actionList": [{"actionType": "RoomDeviceLight", "actionName": "TurnOffAll"}],
-        },
-        160351: {
-            "sceneId": 160351, "sceneName": "中性光", "roomName": "厨房",
-            "sceneType": "Normal", "manual": True, "actionList": [],
-        },
-        160349: {
-            "sceneId": 160349, "sceneName": "中性光", "roomName": "卫生间",
-            "sceneType": "Normal", "manual": True, "actionList": [],
-        },
-        160521: {
-            "sceneId": 160521, "sceneName": "灯光多控", "roomName": "客厅",
-            "sceneType": "MultiControl", "manual": False, "actionList": [],
-        },
-    }
-    scene_coord = FakeCoordinator(devices, scenes)
-    s_away = pkg.scene.ZhisuanSceneEntity(scene_coord, scenes[160348])
-    s_kitchen = pkg.scene.ZhisuanSceneEntity(scene_coord, scenes[160351])
-
-    check("场景名带房间后缀", s_away.name == "离家模式（客厅）", s_away.name)
-    check("同名场景靠房间区分", s_kitchen.name == "中性光（厨房）", s_kitchen.name)
-    check("无房间名时只用场景名",
-          pkg.scene.build_scene_name({"sceneName": "X", "sceneId": 1}) == "X")
-    check("无场景名时回退为「场景 <id>」",
-          pkg.scene.build_scene_name({"sceneId": 160355}) == "场景 160355")
-    check("unique_id 格式为 scene_<sceneId>",
-          s_away.unique_id == "scene_160348", str(s_away.unique_id))
-    check("图标是 mdi（云端 icon 名 HA 不认）",
-          s_away.icon == "mdi:playlist-play", str(s_away.icon))
-
-    section("场景：属性")
-    attrs = s_away.extra_state_attributes
-    check("属性含 scene_id", attrs["scene_id"] == 160348, str(attrs))
-    check("属性含房间", attrs["room"] == "客厅", str(attrs))
-    check("属性含动作条数", attrs["action_count"] == 1, str(attrs))
-    check("属性含 scene_type", attrs["scene_type"] == "Normal", str(attrs))
-
-    section("场景：激活")
-
-    async def scene_controls():
-        scene_coord.scene_calls.clear()
-        await s_away.async_activate()
-        check("激活 → coordinator.async_activate_scene(sceneId)",
-              scene_coord.scene_calls == [160348], str(scene_coord.scene_calls))
-
-    asyncio.run(scene_controls())
-
-    class BoomCoordinator(FakeCoordinator):
-        async def async_activate_scene(self, scene_id):
-            raise RuntimeError("cloud 500")
-
-    HomeAssistantError = sys.modules["homeassistant.exceptions"].HomeAssistantError
-    boom = BoomCoordinator(devices, scenes)
-    s_boom = pkg.scene.ZhisuanSceneEntity(boom, scenes[160348])
-
-    async def scene_error():
-        try:
-            await s_boom.async_activate()
-        except HomeAssistantError as err:
-            check("执行失败抛 HomeAssistantError（不会静默失败）", True, str(err)[:50])
-        else:
-            check("执行失败抛 HomeAssistantError（不会静默失败）", False, "没有抛异常")
-
-    asyncio.run(scene_error())
-
-    section("场景：只保留 manual=true（多控/定时场景不暴露）")
-
-    class FakeApi:
-        def __init__(self, scene_list):
-            self.scene_list = list(scene_list)
-            self.get_calls = []
-
-        async def async_get_scenes(self, home_id, manual=None):
-            self.get_calls.append((home_id, manual))
-            return self.scene_list
-
-    class FakeEntry:
-        entry_id = "test_entry"
-
-        def __init__(self, home_id=185):
-            self.data = {"home_id": home_id}
-
-    fake_api = FakeApi(list(scenes.values()))
-    coord2 = pkg.coordinator.ZhisuanCoordinator(
-        hass=None, entry=FakeEntry(185), api=fake_api
-    )
-
-    # 真实顺序：coordinator 首次刷新发生在平台 setup 之前，
-    # 那时 sink 还没注册，实体由 scene 平台自己从缓存里建。
-    landed = []
-    asyncio.run(coord2.async_refresh_scenes())
-    check("首次刷新（sink 未注册）不重复下发实体", landed == [], str(landed))
-    check("缓存里只剩 manual=true 的 3 个场景",
-          set(coord2.scenes) == {160348, 160351, 160349},
-          str(sorted(coord2.scenes)))
-    check("请求时带 manual=True 参数",
-          fake_api.get_calls and fake_api.get_calls[0] == (185, True),
-          str(fake_api.get_calls))
-
-    # 平台 setup 注册 sink 之后
-    coord2.set_scene_sink(lambda s: landed.extend(s))
-    asyncio.run(coord2.async_refresh_scenes())
-    check("已缓存的场景不会被重复下发", landed == [], str(landed))
-
-    new_scene = {
-        "sceneId": 160355, "sceneName": "客厅灯开", "roomName": "客厅",
-        "sceneType": "Normal", "manual": True, "actionList": [],
-    }
-    fake_api.scene_list.append(new_scene)
-    asyncio.run(coord2.async_refresh_scenes())
-    check("APP 里新建的场景会自动下发成新实体",
-          [s["sceneId"] for s in landed] == [160355], str(landed))
-    check("新场景进入缓存", 160355 in coord2.scenes)
-    check("多控场景（manual=false）始终不进来", 160521 not in coord2.scenes)
-
-    section("场景：布尔字段解析（云端有时回字符串）")
-    check("as_bool('true') → True", pkg.api.as_bool("true") is True)
-    check("as_bool(True) → True", pkg.api.as_bool(True) is True)
-    check("as_bool('false') → False", pkg.api.as_bool("false") is False)
-    check("as_bool('yes') → True", pkg.api.as_bool("yes") is True)
-    check("as_bool(None) → None", pkg.api.as_bool(None) is None)
-    check("as_bool('乱码') → None", pkg.api.as_bool("乱码") is None)
 
 
 def main() -> int:
