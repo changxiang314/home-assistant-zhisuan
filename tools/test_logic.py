@@ -155,6 +155,30 @@ def build_ha_stubs() -> None:
     climate_mod.ClimateEntityFeature = ClimateEntityFeature
     climate_mod.ClimateEntity = ClimateEntity
 
+    # --- homeassistant.components.event ---
+    event_mod = mod("homeassistant.components.event")
+
+    class EventEntity:
+        """与真实 HA 一致：event_types 从 _attr_event_types 派生，
+        _trigger_event 会校验 event_type 必须是声明过的值。"""
+
+        _attr_event_types = []
+        _attr_name = None
+
+        @property
+        def event_types(self):
+            return self._attr_event_types
+
+        def _trigger_event(self, event_type, event_data=None):
+            if event_type not in self._attr_event_types:
+                raise ValueError(f"{event_type} not in event_types")
+            self._last_event = (event_type, event_data or {})
+
+        def async_write_ha_state(self):
+            self._state_written = True
+
+    event_mod.EventEntity = EventEntity
+
     # --- homeassistant.const ---
     const_mod = mod("homeassistant.const")
 
@@ -203,6 +227,13 @@ def build_ha_stubs() -> None:
         def __class_getitem__(cls, item):
             return cls
 
+        async def async_added_to_hass(self):
+            pass
+
+        def async_on_remove(self, func):
+            self._on_remove = getattr(self, "_on_remove", [])
+            self._on_remove.append(func)
+
     uc.DataUpdateCoordinator = DataUpdateCoordinator
     uc.UpdateFailed = UpdateFailed
     uc.CoordinatorEntity = CoordinatorEntity
@@ -226,6 +257,7 @@ def build_ha_stubs() -> None:
     ha.core = core
     comps.light = light_mod
     comps.climate = climate_mod
+    comps.event = event_mod
     helpers.update_coordinator = uc
     helpers.device_registry = dr
     helpers.entity_platform = ep
@@ -249,7 +281,8 @@ def load_integration():
         return module
 
     # 依赖顺序：const → api → coordinator → entity → 各平台
-    for name in ("const", "api", "coordinator", "entity", "light", "climate"):
+    for name in ("const", "api", "coordinator", "entity", "push", "event",
+                 "light", "climate"):
         load(name)
     return pkg
 
@@ -548,9 +581,145 @@ def run() -> None:
 
     asyncio.run(climate_controls())
 
+    # ---------------- 6014 四路快捷面板按键 ----------------
+    push = pkg.push
+    event_platform = pkg.event
+
+    # 2026-11-16 19:47 实测抓包（厨房面板 2921 按 2 号键，节选字段）
+    panel_press = {
+        "messageId": "5c345f52-3a41-4f35-8e94-96a997e41eb7",
+        "messageType": "DeviceReport", "name": "Normal",
+        "code": 200, "info": "SUCCESS", "homeId": 185, "roomId": 362,
+        "data": {
+            "extension": {
+                "times": {"buttonId": 1794829656157, "isOnline": 1789493767927},
+                "productId": 6014,
+                "BindAction": False,
+                "lowBatteryState": "1",
+                "buttonId": "2",
+            },
+            "identify": "ShortcutPanelActivedNotification",
+            "deviceMac": "D4:48:67:FF:FE:10:22:34",
+            "userDeviceId": 2921,
+        },
+    }
+
+    section("6014 快捷面板：按键推送解析（字段名全部来自实测）")
+    parsed = push.parse_button_press(panel_press)
+    check("DeviceReport + identify=ShortcutPanelActivedNotification 能解析",
+          parsed is not None)
+    check("  user_device_id=2921", parsed and parsed["user_device_id"] == 2921,
+          str(parsed and parsed.get("user_device_id")))
+    check("  buttonId 是字符串 '2'，解析成 int 2",
+          parsed and parsed["button"] == 2, str(parsed and parsed.get("button")))
+    check("  pressed_at 取 times.buttonId",
+          parsed and parsed["pressed_at"] == 1794829656157,
+          str(parsed and parsed.get("pressed_at")))
+    check("  identify 透传给实体属性",
+          parsed and parsed["identify"] == "ShortcutPanelActivedNotification")
+
+    # 同一个面板的"电量/绑定"上报也带 buttonId（旧值），不能当按键
+    battery_press = {
+        **panel_press,
+        "messageId": "610990cc-9e27-45ce-82cf-7b5db8894d48",
+        "data": {
+            "extension": {"productId": 6014, "BindAction": True,
+                          "buttonId": "1", "lowBatteryState": "1"},
+            "identify": "BatteryAlarm",
+            "userDeviceId": 2921,
+        },
+    }
+    check("identify=BatteryAlarm 不算按键",
+          push.parse_button_press(battery_press) is None)
+
+    not_product = {
+        **panel_press,
+        "data": {**panel_press["data"],
+                 "extension": {**panel_press["data"]["extension"],
+                               "productId": 6016}},
+    }
+    check("productId!=6014 不算 6014 按键",
+          push.parse_button_press(not_product) is None)
+
+    bad_button = {
+        **panel_press,
+        "data": {**panel_press["data"],
+                 "extension": {**panel_press["data"]["extension"],
+                               "buttonId": "5"}},
+    }
+    check("buttonId 超出 1..4 忽略", push.parse_button_press(bad_button) is None)
+
+    check("非 DeviceReport 不算按键",
+          push.parse_button_press({"messageType": "Alarm"}) is None)
+
+    section("6014 快捷面板：同一次按下重复推送去重")
+    dedup = push.ButtonPressDeduplicator()
+    check("第一次按下 → 不重复", not dedup.is_duplicate(parsed))
+    check("同一条（同按下时间戳）再推 20 次 → 仍判重复",
+          dedup.is_duplicate(parsed))
+    parsed2 = {**parsed, "pressed_at": 1794829657000,
+               "message_id": "next"}
+    check("下一次按下（新时间戳）→ 不重复",
+          not dedup.is_duplicate(parsed2))
+
+    section("6014 快捷面板：coordinator 分发（只通知一次）")
+    hass_stub = sys.modules["homeassistant.core"].HomeAssistant()
+    entry_stub = types.SimpleNamespace(entry_id="test", data={"home_id": 185})
+    panel_coord = pkg.coordinator.ZhisuanCoordinator(hass_stub, entry_stub, object())
+    panel_coord._rooms = {362: "厨房"}
+    panel_coord._devices = {
+        2921: device(2921, "四路快捷面板", "SceneTrigger", [], model="6014"),
+    }
+    panel_coord._devices[2921]["roomId"] = 362
+    hits: list[dict] = []
+    remove_listener = panel_coord.async_register_button_press_listener(hits.append)
+    panel_coord.async_handle_button_press(parsed)
+    panel_coord.async_handle_button_press(parsed)  # 云端重复推送
+    check("重复推送只通知一次", len(hits) == 1, f"hits={len(hits)}")
+    check("通知内容 button=2", hits and hits[0]["button"] == 2)
+    remove_listener()
+    panel_coord.async_handle_button_press(parsed2)
+    check("注销监听后不再通知", len(hits) == 1, f"hits={len(hits)}")
+
+    section("6014 快捷面板：event 实体")
+    button_event = event_platform.ZhisuanPanelButtonEvent(panel_coord, 2921)
+    asyncio.run(button_event.async_added_to_hass())
+    check("event_types = button_1..button_4",
+          button_event.event_types ==
+          ["button_1", "button_2", "button_3", "button_4"],
+          str(button_event.event_types))
+    check("实体名带房间（4 块面板同名，必须靠房间区分）",
+          button_event._attr_name == "厨房快捷面板按键",
+          str(button_event._attr_name))
+    check("unique_id 不与旧 switch 实体冲突",
+          button_event.unique_id == "2921_panel_button",
+          str(button_event.unique_id))
+
+    triggered: list[str] = []
+    _orig_trigger = button_event._trigger_event
+
+    def _counting_trigger(event_type, event_data=None):
+        triggered.append(event_type)
+        _orig_trigger(event_type, event_data)
+
+    button_event._trigger_event = _counting_trigger  # type: ignore[method-assign]
+    parsed3 = {**parsed, "pressed_at": 1794829657123, "message_id": "ev"}
+    panel_coord.async_handle_button_press(parsed3)
+    check("按键 → 触发 button_2 事件", triggered == ["button_2"], str(triggered))
+    check("事件属性带 pressed_at",
+          getattr(button_event, "_last_event", (None, {}))[1].get("pressed_at")
+          == 1794829657123)
+    panel_coord.async_handle_button_press(parsed3)  # 云端重复推送
+    check("重复推送不重复触发事件", triggered == ["button_2"], str(triggered))
+
 
 def main() -> int:
     global VERBOSE
+    # Windows 控制台默认 GBK，✅/❌ 和中文会炸；统一成 UTF-8
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError):
+        pass
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", "--verbose", action="store_true", help="显示通过的断言")
     args = ap.parse_args()

@@ -8,13 +8,13 @@
 ## 一句话现状
 
 挚算智联（杭州挚算科技）→ Home Assistant 的自定义集成，**已上线可用**，
-用户家里 66 台设备全部接入，日常在用。当前版本 **v1.3.8**。
+用户家里 66 台设备全部接入，日常在用。当前版本 **v1.4.0**。
 
 ## 交付物清单
 
 | 位置 | 内容 |
 |---|---|
-| `custom_components/zhisuan/` | 集成源码（15 个文件，约 2900 行），这就是产品 |
+| `custom_components/zhisuan/` | 集成源码（17 个文件，约 3200 行；v1.4.0 新增 `push.py` / `event.py`），这就是产品 |
 | `docs/api-quirks.md` | **挚算云真实行为手册**，官方 PDF 有大量错误，以这份为准 |
 | `docs/architecture.md` | 模块职责、数据流、加新设备要动哪 |
 | `docs/testing.md` | 本地验证方法论（**别在 HA 上试错**） |
@@ -80,7 +80,8 @@ python3 tools/probe_devices.py --type Dimmer
 
 | 设备 | HA 平台 | 状态 |
 |---|---|---|
-| 开关 / 插座 / 快捷面板 | `switch` | ✅ 可用 |
+| 开关 / 插座 / 自定义面板 | `switch` | ✅ 可用 |
+| 四路快捷面板（6014）按键 | `event` | ✅ v1.4.0 起可用（每块 1 个实体、4 种事件类型） |
 | 灯（开关型） | `light` (onoff) | ✅ 可用 |
 | 灯（调光 + 调色温） | `light` (color_temp) | ✅ 可用 |
 | 灯（调光 + 色温 + RGB，双模式） | `light` (color_temp + rgb) | ✅ v1.3.8 起可用 |
@@ -130,6 +131,9 @@ python3 tools/probe_devices.py --type Dimmer
 
 7. **灯的双模式（色温 + RGB）必须两个都声明** —— 只声明 RGB 会让色温控件消失。
 
+8. **6014 面板同一次按键会被云端重复推 10+ 条** —— 不去重的话一次按下触发多次自动化；
+   另外电量上报里也带 `buttonId`（旧值），必须按 `identify` 过滤（见 `push.py`）。
+
 详见 `docs/api-quirks.md`（11 章）和 `AGENTS.md` §6。
 
 ## 版本历史（关键节点）
@@ -150,13 +154,15 @@ python3 tools/probe_devices.py --type Dimmer
 | v1.3.6 | 客厅灯带(2905) 能力校正 |
 | v1.3.7 | 除湿模式 `DEHUMIDIFICATION` 字符串识别 |
 | **v1.3.8** | **双模式灯（主卧灯带 2907/2891）支持色温** |
+| **v1.4.0** | **6014 四路快捷面板按键接入 HA**：新增 `push.py`（解析+去重）、`event.py`（按键事件实体），6014 从 switch 迁到 event，旧开关实体自动清理 |
 
 ## 优先做的事（如果继续开发）
 
 1. **新风升级成 `fan` 平台** —— 设备有风速档位，现在压成 `switch` 浪费了
 2. **虚拟子设备"自动"风速档** —— 云端不认 `{"speed":"AUTO"}`，可以试
    `AdjustUp/DownWindSpeed` 步进模拟，或问挚算客服
-3. **场景（Scene）实体** —— 用户有 4 个 `SceneTrigger` 快捷面板，现在只能当开关用
+3. **场景（Scene）实体** —— 挚算 APP 里的场景还没接进 HA；
+   用户那 4 块 6014 快捷面板的按键已在 v1.4.0 接入 `event` 实体（不再是开关）
 4. **门锁 / 门铃** —— 设备类型已知，未实现
 5. **多 home 支持** —— 现在硬编码单 homeId
 
@@ -176,6 +182,6 @@ python3 tools/probe_devices.py --type Dimmer
 - [x] 测试方法论 + 可复用工具（`docs/testing.md` + `tools/`）
 - [x] 设备清单（`docs/device-inventory.md`）
 - [x] AI Agent 规范（`AGENTS.md`）
-- [x] 逻辑测试 47 条全过（`python3 tools/test_logic.py`）
+- [x] 逻辑测试 68 条全过（`python3 tools/test_logic.py`）
 - [ ] **挚算凭据**：需用户当面/私下交接，不在仓库里
 - [ ] **GitHub 推送权限**：需用户给新 token 或加 collaborator

@@ -21,6 +21,7 @@ from .const import (
     CONF_HOME_ID,
     CONF_REGION,
     DEFAULT_ENVIRONMENT,
+    DEVICE_TYPE_SCENE_TRIGGER,
     DOMAIN,
 )
 from .coordinator import ZhisuanCoordinator
@@ -40,6 +41,7 @@ PLATFORMS: list[Platform] = [
     Platform.CLIMATE,
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
+    Platform.EVENT,
 ]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -91,6 +93,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # 一次性迁移：v1.2.4 之前给 Light/Plug/Switch/Button 错误创建了 battery sensor，
     # 导致这些 device 在 HA 里被标 unavailable。启动时清掉。
     _migrate_stale_battery_sensors(hass, coordinator)
+
+    # 一次性迁移：v1.4.0 起 6014 四路快捷面板从 switch 改成 event（按键事件），
+    # 清掉旧的、没有真实状态的开关实体。
+    _migrate_scene_trigger_switches(hass, coordinator)
 
     # 启动时恢复 token（如果重启后有存）
     # （这里靠 api 内部 _ensure_token_fresh 检查；reload 时由 reload 流程重新 login）
@@ -207,3 +213,37 @@ def _migrate_stale_battery_sensors(
             removed += 1
     if removed:
         _LOGGER.info("Migration: removed %d stale battery sensor(s)", removed)
+
+
+def _migrate_scene_trigger_switches(
+    hass: HomeAssistant, coordinator: "ZhisuanCoordinator"
+) -> None:
+    """删除 v1.4.0 之前为 6014 四路快捷面板创建的 switch 实体。
+
+    这些实体只是占位（面板没有开关状态，也没有 turnOnOff），用户侧早已禁用。
+    v1.4.0 起改由 event 平台提供"按键事件"实体，旧的 switch 一并清掉。
+    """
+    registry = er.async_get(hass)
+    removed = 0
+    for entity in list(registry.entities.values()):
+        if entity.platform != DOMAIN or not entity.entity_id.startswith("switch."):
+            continue
+        try:
+            user_device_id = int(entity.unique_id)
+        except (TypeError, ValueError):
+            continue
+        device = coordinator.devices.get(user_device_id)
+        if not device:
+            continue
+        if device.get("type") != DEVICE_TYPE_SCENE_TRIGGER:
+            continue
+        _LOGGER.info(
+            "Migration v1.4.0: removing panel switch %s (replaced by button event entity)",
+            entity.entity_id,
+        )
+        registry.async_remove(entity.entity_id)
+        removed += 1
+    if removed:
+        _LOGGER.info(
+            "Migration v1.4.0: removed %d panel switch entity(ies)", removed
+        )

@@ -231,6 +231,40 @@ DELETE /v1/subscribe/{homeId}
 
 新增设备类型时**两套字段名都要加**。
 
+### 6014 四路快捷面板的按键推送（v1.4.0 实测）
+
+6014 的按键是**瞬时事件**，不是开关状态，云端长这样：
+
+```json
+{
+  "messageId": "5c345f52-3a41-4f35-8e94-96a997e41eb7",
+  "messageType": "DeviceReport",
+  "data": {
+    "identify": "ShortcutPanelActivedNotification",
+    "userDeviceId": 2921,
+    "deviceMac": "D4:48:67:FF:FE:10:22:34",
+    "extension": {
+      "productId": 6014,
+      "buttonId": "2",
+      "BindAction": false,
+      "times": {"buttonId": 1794829656157, "isOnline": 1789493767927}
+    }
+  }
+}
+```
+
+坑（全部实测踩过）：
+
+1. `identify == "ShortcutPanelActivedNotification"` 才是真按键。同一面板的
+   `BatteryAlarm` / `BindAction` 上报里**也带 `buttonId`，但那是上次按下的旧值**，
+   不按 identify 过滤就会误触发。
+2. `buttonId` 是**字符串** `"1"`..`"4"`（不是 int）；`times.buttonId` 是按下时间戳（ms）。
+3. **同一次按下云端会重复推 10+ 条完全相同的消息**（`messageId` 与 `times.buttonId`
+   都一样，2 秒内），集成侧按 `(userDeviceId, buttonId, times.buttonId)` 去重。
+4. 这类消息**不走** `DEVICE_REPORT_KEYS` 白名单（白名单是状态字段）：在
+   `webhook._dispatch` 里先用 `push.parse_button_press()` 拦下来，再分发给 event 实体。
+5. 解析 + 去重逻辑在 `push.py`（纯 Python、无 HA 依赖，`tools/test_logic.py` 有覆盖）。
+
 ---
 
 ## 8. 云端会撒谎 / 有 bug

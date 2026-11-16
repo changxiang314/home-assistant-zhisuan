@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 
@@ -32,6 +33,7 @@ from .const import (
     DOMAIN,
     PLUG_POWER_POLL_INTERVAL,
 )
+from .push import ButtonPressDeduplicator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,6 +70,9 @@ class ZhisuanCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
         self._plug_poll_task: asyncio.Task | None = None
         self._plug_poll_stop: asyncio.Event | None = None
         self._plug_poll_interval: float = PLUG_POWER_POLL_INTERVAL
+        # 6014 四路快捷面板按键事件：webhook → 监听者（event 平台实体）
+        self._button_press_listeners: list[Callable[[dict[str, Any]], None]] = []
+        self._button_deduper = ButtonPressDeduplicator()
 
     # ------------------------------------------------------------------
     # 公开属性
@@ -320,6 +325,46 @@ class ZhisuanCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
         ext.update(props)
         # 触发 listener
         self.async_set_updated_data(self._devices)
+
+    # ------------------------------------------------------------------
+    # 6014 四路快捷面板：按键触发（瞬时事件，不是状态）
+    # ------------------------------------------------------------------
+    @callback
+    def async_register_button_press_listener(
+        self, listener: Callable[[dict[str, Any]], None]
+    ) -> Callable[[], None]:
+        """注册按键监听者（event 平台实体用），返回注销函数。"""
+        self._button_press_listeners.append(listener)
+
+        def _remove() -> None:
+            if listener in self._button_press_listeners:
+                self._button_press_listeners.remove(listener)
+
+        return _remove
+
+    @callback
+    def async_handle_button_press(self, press: dict[str, Any]) -> None:
+        """处理一次 6014 按键（已解析，见 push.parse_button_press）。
+
+        云端会把同一次按下重复推送十几条，这里按
+        (userDeviceId, buttonId, 按下时间戳) 去重，一次按下只通知一次。
+        """
+        if self._button_deduper.is_duplicate(press):
+            _LOGGER.debug(
+                "Duplicate 6014 button push dropped: device=%s button=%s ts=%s",
+                press["user_device_id"], press["button"], press.get("pressed_at"),
+            )
+            return
+
+        device = self._devices.get(press["user_device_id"]) or {}
+        _LOGGER.info(
+            "6014 面板按键：%s（device=%s）按下 button_%s",
+            device.get("deviceName") or "快捷面板",
+            press["user_device_id"],
+            press["button"],
+        )
+        for listener in list(self._button_press_listeners):
+            listener(press)
 
     # ------------------------------------------------------------------
     # 设备控制：透传给 api

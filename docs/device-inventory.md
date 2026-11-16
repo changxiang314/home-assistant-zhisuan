@@ -21,7 +21,7 @@ Host 2865 (ccu_28)
     │   ├── 2918 双路灯控(3130)    → 2919 镜前灯 / 2920 主卫灯开关
     │   ├── 2911 四路自定义面板(MixLightTouchPanel 3203) → 2912~2915 virtual_light
     │   └── 2923 三路自定义面板(MixLightTouchPanel 6026) → 2924~2926 virtual_light
-    ├── SceneTrigger ×4    四路快捷面板(6014) → HA switch
+    ├── SceneTrigger ×4    四路快捷面板(6014) → HA event（按键1~4 事件）
     ├── CurtainsMotor ×2   2890 窗纱 / 2892 窗帘 (3068)
     ├── Sensor ×2          2878 人体(3053) / 2883 温湿度(3052)
     ├── Plug ×1            2888 投影仪 (3037)
@@ -45,6 +45,7 @@ Host 2865 (ccu_28)
 | **2888** | 投影仪 | 3037 | 功率只能靠 `QueryDisconnector` 轮询，云端不推送 | `coordinator.async_start_plug_power_poll()`（5s） |
 | **2879** | 暖通多合一 | 3210 | 父设备，`extension.eps[]` 里镜像 3 台子空调的状态 | `_virtual_state()` 回落到这里 |
 | **2865 / 2866 / 2871** | Host / Gateway | — | 基础设施，HA 里不建实体 | 不在 `DEVICE_TYPE_TO_HA_PLATFORM` 里 |
+| **2921 等 4 块** | 四路快捷面板 | 6014 | 瞬时按键、不是开关；按键推送 `identify=ShortcutPanelActivedNotification`，电量上报里 `buttonId` 是旧值 | `push.py` 解析 + `event.py` 出按键事件（v1.4.0）；旧的 switch 实体已迁移删除 |
 
 ## 按类型统计
 
@@ -53,7 +54,7 @@ Host 2865 (ccu_28)
 | Light | 22 | `light`（其中 13 台是纯开关灯，只有 on/off） |
 | Dimmer | 21 | `light`（全部支持亮度+色温；2 台支持 RGB） |
 | AirCondition | 4 | `climate`（3 虚拟 + 1 mix） |
-| SceneTrigger | 4 | `switch` |
+| SceneTrigger | 4 | `event`（每块 1 个实体，4 种事件类型 button_1~4） |
 | MixLightTouchPanel | 2 | `switch`（其下 virtual_light 各自是 `light`） |
 | CurtainsMotor | 2 | `cover` |
 | Sensor | 2 | `sensor` / `binary_sensor`（按属性拆多个实体） |

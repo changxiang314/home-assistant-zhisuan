@@ -14,7 +14,6 @@ from .const import (
     DEVICE_TYPE_AIR_FRESHER,
     DEVICE_TYPE_MIX_LIGHT_TOUCH_PANEL,
     DEVICE_TYPE_PLUG,
-    DEVICE_TYPE_SCENE_TRIGGER,
     DEVICE_TYPE_SWITCH,
     DOMAIN,
     EXT_TURN_ON_OFF,
@@ -23,10 +22,10 @@ from .coordinator import ZhisuanCoordinator
 from .entity import ZhisuanEntity
 
 # 这些 type 的设备走 switch 平台
+# 6014 四路快捷面板（SceneTrigger）不在这里：它是瞬时按键，改走 event 平台（event.py）
 SWITCH_DEVICE_TYPES = {
     DEVICE_TYPE_SWITCH,
     DEVICE_TYPE_PLUG,
-    DEVICE_TYPE_SCENE_TRIGGER,            # 四路快捷面板
     DEVICE_TYPE_MIX_LIGHT_TOUCH_PANEL,   # 三路自定义面板
     DEVICE_TYPE_AIR_FRESHER,             # 新风（暂用 switch，后续加 fan 平台）
 }
