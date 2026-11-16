@@ -8,12 +8,12 @@
 
 - **做什么**：把杭州挚算科技（ZhiSuan / aioteco）的小众智能家居云接进 Home Assistant
 - **形态**：一个 HA custom component，通过 **HACS** 分发
-- **当前版本**：v1.3.8（见 `custom_components/zhisuan/manifest.json`）
+- **当前版本**：v1.4.0（见 `custom_components/zhisuan/manifest.json`）
 - **用户**：1 位真实用户（智能硬件 PM，非程序员），家里 66 台设备，HA OS 跑在 ARM 小主机
 - **仓库**：https://github.com/changxiang314/home-assistant-zhisuan
 - **本地路径**：`/Users/dcc/.minimax/workspace/zhisuan-ha 2`（注意目录名有空格和 `2`，是历史遗留）
 
-**已可用**：开关 / 灯（调光+调色温+RGB）/ 窗帘 / 空调（两种 schema）/ 地暖 / 新风 / 传感器 / Plug 功率
+**已可用**：开关 / 灯（调光+调色温+RGB）/ 窗帘 / 空调（两种 schema）/ 地暖 / 新风 / 传感器 / Plug 功率 / **云场景（11 个手动场景）**
 **实现但用户未验证**：红外空调伴侣、门锁、门铃、摄像头
 
 ## 1. 必读顺序
@@ -79,9 +79,14 @@ python3 tools/probe_devices.py                    # 全量
 python3 tools/probe_devices.py --id 2907          # 单台完整 extension
 python3 tools/probe_devices.py --type Dimmer      # 按类型
 
+# 看云端场景（只读，不执行）
+python3 tools/probe_scenes.py                    # 全部 22 个场景
+python3 tools/probe_scenes.py --manual           # 只看会暴露成 HA 实体的 11 个
+python3 tools/probe_scenes.py --id 160348        # 单个场景的全部动作
+
 # 逻辑桩测试（不需要 HA，不联网）
 python3 tools/test_logic.py          # 只显示失败
-python3 tools/test_logic.py -v       # 显示全部 47 条断言
+python3 tools/test_logic.py -v       # 显示全部 72 条断言
 
 # OAuth + 拉设备自测（老工具，功能被 probe_devices 覆盖）
 python3 tools/selftest.py --client-id ... --client-secret ... --username ... --password ... --home-id 185
@@ -91,7 +96,7 @@ git add -A && git commit -m "fix(vX.Y.Z): <一句话>"
 GH_TOKEN=<token> GIT_ASKPASS=<askpass脚本> git push https://x-access-token@github.com/changxiang314/home-assistant-zhisuan.git main
 ```
 
-依赖：`aiohttp`。**不需要装 Home Assistant**（桩测试自带假模块）。
+依赖：**无**（`probe_*.py` 和 `test_logic.py` 都只用标准库，不需要装 aiohttp / HA）。
 
 ## 5. 版本与提交
 
@@ -106,18 +111,23 @@ GH_TOKEN=<token> GIT_ASKPASS=<askpass脚本> git push https://x-access-token@git
 2. **云端 `keyValue` 复合键与单字段不一致** —— 挚算自己的 bug，靠 60s 轮询收敛
 3. **`color` 字段永不清空** —— 切到色温模式后仍保留旧 RGB 值，不能用它判断当前模式
 4. **红外空调伴侣状态不可读** —— 单向控制
-5. **`GET /v1/device/{id}` 接口坏了** —— 会返回 500，一律改用设备列表筛
+5. **token 是单活的** —— 同账号同时只有一个有效 token，新的登录会作废旧的。
+   调试脚本和 HA 会互相踢；**反复 401 是正常现象，不是集成坏了**。见 `docs/api-quirks.md` §13
+6. **快捷面板（SceneTrigger）的"按键↔场景"绑定关系读不到** —— 面板没出现在任何场景的
+   `triggerList` 里，无法自动生成"按这个键 = 执行这个场景"的按钮。见 §14
 
 ## 7. 待办 / 可改进
 
+- [ ] **快捷面板按键事件进 HA**（用户重点需求）—— 需要用户在 HA 日志里确认云端推不推
+      按键事件；轮询路径确定可行（`times.buttonId` 变化）但延迟 60s
 - [ ] 虚拟子设备的"自动"风速档（需要问挚算客服，或改用 `AdjustUp/DownWindSpeed` 步进模拟）
 - [ ] 新风（AirFresher）目前用 `switch` 平台，可升级成 `fan` 平台（有风速档位）
 - [ ] 红外空调伴侣的状态回读
 - [ ] `QueryStatisticsLog`（电量日志）对 Plug 返回 500，电量统计暂缺
 - [ ] 门锁 / 门铃 / 摄像头未实现
-- [ ] 场景（Scene）实体未实现，目前只能通过 Action 触发
 - [ ] `PLUG_POWER_POLL_INTERVAL = 5s` 是否需要做成 UI 可配置
 - [ ] 多套 home 支持（当前硬编码单 homeId）
+- [ ] `__init__.py` 每次启动都重新 OAuth，会作废其它客户端的 token → 改为优先复用已存 token
 
 ## 8. 不要做的事
 
@@ -132,8 +142,10 @@ GH_TOKEN=<token> GIT_ASKPASS=<askpass脚本> git push https://x-access-token@git
 
 | 症状 | 先看 |
 |---|---|
-| 控制无效 / 401 | `docs/api-quirks.md` §1（401 必须抛 ZhisuanAuthError） |
+| 控制无效 / 401 | `docs/api-quirks.md` §1（401 必须抛 ZhisuanAuthError）、§13（token 单活） |
 | 状态回弹 | `docs/api-quirks.md` §7（webhook 白名单漏字段） |
 | 少一套控件 | 实体的 `supported_color_modes` / `supported_features` 属性 |
 | 模式/风速方向反了 | `docs/api-quirks.md` §4.4 / §6 |
+| 场景点不动 / 灯被莫名打开 | `docs/api-quirks.md` §12（执行场景有副作用） |
+| 面板按键没反应 | `docs/api-quirks.md` §14（面板是发射器不是负载） |
 | 一般性故障对照 | `docs/testing.md` 末尾"常见故障对照表" |

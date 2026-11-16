@@ -72,10 +72,14 @@ content-type: application/json
 
 **翻页注意**：翻到最后一页之后再请求，偶尔返回 `data: null`。
 当成"没有更多"处理，不要当错误抛。
+（2026-11-16 补充：**不只是尾页**，第一页也可能偶发 `data: null`，
+这时要重试一次，不是当"没有设备"。）
 
-**已知坏掉的接口**：`GET /v1/device/{userDeviceId}`（按 ID 取单台）
-会返回 HTTP 500 或 `{"error": "Internal Server Error"}`。
-**别用它**，从设备列表里筛。`api.py` 里虽然留了 `async_get_device()`，但实际代码都走列表。
+**`GET /v1/device/{userDeviceId}`（按 ID 取单台）**：
+2026-11-16 实测**已经恢复正常** —— 带不带 `?homeId=` query 参数都返回 200，
+数据结构和设备列表里的一致。之前记录的"这个接口坏了返回 500"**已过期**：
+那大概率是云端临时故障，不是设计如此。
+不过 `api.py` 里实际代码仍然走设备列表筛（一次拿全量，省 N 次请求），保持现状即可。
 
 ---
 
@@ -288,3 +292,136 @@ DELETE /v1/subscribe/{homeId}
 - Client ID / Secret / 账号密码由用户提供，**绝不写进仓库、不写进 shell 历史**
 - 测试脚本一律读环境变量（见 `tools/probe_devices.py` 顶部）
 - 用完 `rm -f ~/.config/zs-openapi/session.json`（如果用官方 CLI）
+
+---
+
+## 12. 场景（Scene）—— v1.4.0 新增
+
+挚算云有独立的"场景"体系，**这是官方 PDF 里少数和实测对得上的部分**。
+
+```
+GET  /v1/scene                → { "data": { "sceneList": [Scene, ...] } }
+GET  /v1/scene/{sceneId}      → { "data": { "scene": {...} } }
+POST /v1/scene/action         → { "sceneId": 160348 }     # 执行场景
+```
+
+查询参数：`sceneId` / `keywords`（名称模糊搜）/ `state` / `sceneType` / `roomId` / `manual`。
+（实测 `?manual=true` 有效；`sceneType` / `keywords` 没单独验证过，客户端过滤更稳。）
+
+### 12.1 场景对象结构
+
+```json
+{
+  "sceneId": 160348, "sceneName": "离家模式", "sceneType": "Normal",
+  "roomId": 358, "roomName": "客厅", "manual": true, "state": true,
+  "triggerList": [],
+  "actionList": [
+    { "id": 254666, "actionType": "RoomDeviceLight", "actionName": "TurnOffAll",
+      "delayTime": 0, "extension": [{"roomId": "0", "roomName": "全屋"}] },
+    { "actionType": "Scene", "actionName": "ExecuteScene",
+      "extension": {"sceneId": "160355", "sceneName": "客厅灯开", ...} }
+  ]
+}
+```
+
+枚举（实测全集）：
+
+| 枚举 | 取值 |
+|---|---|
+| `sceneType` | `Normal` / `MultiControl` |
+| `triggerType` | `Device`（设备状态变化）/ `Schedule`（定时）/ `Cycle`（周期） |
+| `actionType` | `Device` / `RoomDeviceLight` / `RoomDeviceLightDimmer` / `RoomDeviceLightTape` / `RoomDeviceCurtain` / `RoomDeviceAirConditioner` / `Scene`（调用另一个场景） |
+
+`actionType` 带 `RoomDevice` 前缀的是**房间级批量动作**，目标写在 `extension` 数组里
+（`[{"roomId": "0", "roomName": "全屋"}]`，`roomId=0` 表示全屋）。
+
+`triggerType=Device` 的 trigger 里有 `userDeviceId` 和完整 `device` 对象，
+`propName`/`propValue` 用于"属性等于某值才触发"（例：人体感应开灯是
+`propName=bodySensorNoActive, propValue=0`）。
+
+### 12.2 `manual` 决定这个场景在 HA 里怎么用
+
+- `manual=true` → **人在 APP 里手动触发的一组动作** → 正好对应 HA 的 scene 实体
+- `manual=false` → 多控（MultiControl）或定时（Schedule）场景，**触发器在云端**，
+  在 HA 里点一下没有意义（触发条件不在这边）
+
+实测 homeId=185：22 个场景，11 个 `manual=true`。
+
+### 12.3 ⚠️ 执行场景会真的动家里设备，而且会隐式开灯
+
+实测（2026-11-16）：执行"冷光"场景（`SetBrightnessColorTemperature`）后，
+厨房灯 2900/2886 从 **关 → 开**，色温 61 → 96。
+
+**单独调 `SetBrightnessColorTemperature` 也会隐式开灯**，不是"只改参数不开灯"。
+所以"拿一个场景做无害测试"是做不到的 —— 必须先查目标设备当前状态，
+选一个动作执行后状态不变的场景，否则会把用户的灯打开。
+
+测完记得把状态还原（开回去的灯要关掉，色温要设回原值）。
+
+### 12.4 执行是异步的
+
+`POST /v1/scene/action` 立刻返回 `{"code":200,"info":"SUCCESS"}`，
+**设备是之后才动的**。HA 里的灯/开关状态靠 webhook 推送更新，不是执行接口的返回值。
+
+### 12.5 场景接口的错误码
+
+| 返回 | 含义 |
+|---|---|
+| `{"code":404,"info":"无此场景"}` | sceneId 不存在（HTTP 仍是 200） |
+| `{"code":200,"info":"SUCCESS"}` | 已受理 |
+
+**用不存在的 sceneId 试探接口形状是安全的** —— 404 说明端点和 body 都对。
+
+---
+
+## 13. token 是"单活"的 —— 同账号只能有一个有效 token
+
+2026-11-16 实测（重要，影响所有调试行为）：
+
+1. 登录一次后**连续请求，前 2 次正常，第 3 次开始持续 401**
+   （HTTP 200 + body `{"code":401,"info":"The access token is invalid."}`）
+2. **任何一次新的 OAuth 登录都会作废之前的 token** —— 重新登录后，旧 token 立刻 401
+3. `data: null` 也可能是这个原因（云端内部状态不同步），不是尾页特有的
+
+推论：
+
+- **HA 集成和调试脚本不能同时用同一个账号跑**，会互相踢。
+  调试时脚本登录会作废 HA 的 token → HA 下次请求 401 → HA 自动重登（v1.3.1 那套）
+  → HA 的重登又作废脚本的 token。**调试完记得确认 HA 恢复正常**。
+- `__init__.py` 目前每次启动都无条件 `async_login()`，等于 HA 一重启就踢掉其他客户端。
+  以后可以考虑优先复用 `entry.data` 里存的 token。
+- **token 反复 401 是正常现象，不是集成坏了**。不要一看到 401 就去改代码。
+
+---
+
+## 14. 快捷面板（SceneTrigger）的真相
+
+用户有 4 台"四路快捷面板"（model 6014，客厅/主卧/卫生间/厨房各一台），
+云端 `type=SceneTrigger`。2026-11-16 实测：
+
+| 项 | 实测值 |
+|---|---|
+| 云端实体数 | **每台物理面板只对应 1 个 device**（不是 4 个） |
+| `actionList` | 只有 `TurnOnOff` |
+| `extension.buttonId` | `"1"`~`"4"`，= **最后按下的第几个键**（动态） |
+| `extension.times.buttonId` | 最后一次按键的**时间戳**，变了就说明有人按过 |
+| `extension.BindAction` | `true` = 该面板支持绑定动作 |
+| `trait` | 只有 `{"netType": "ZigBee"}` |
+
+**关键结论：面板是电池供电的按键发射器，不是可开关的负载。**
+对它发 `TurnOn/TurnOff` 没有物理意义 —— 集成里之前把它当 switch 是错的。
+
+**"按键 ↔ 场景"的绑定关系读不到**：4 台面板**没有出现在任何一个场景的 `triggerList` 里**，
+`GET /v1/scene` 和 `GET /v1/device/{id}` 都看不到绑定信息。
+所以没法在 HA 里自动生成"按这个键 = 执行这个场景"的按钮。
+
+**面板按键事件能不能进 HA，还没验证**。两条可能路径：
+
+1. webhook 推送 —— 未知云端推不推、字段名是什么
+   （`webhook.py` 的 `DEVICE_REPORT_KEYS` 白名单里**目前没有 `buttonId`**，
+   就算云端推了也会被丢掉）
+2. 60 秒轮询 —— **确定可行**：`times.buttonId` 变了 = 有人按了某个键。
+   延迟最大 60 秒，对"离家模式"这种场景偏慢。
+
+要往下走，需要用户在 HA 日志里看一次实际推送内容（筛 `custom_components.zhisuan`）。
+

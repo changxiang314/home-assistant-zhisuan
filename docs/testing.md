@@ -8,6 +8,7 @@
 ```
 ① 探测真实能力   →  ② 直连云端验证行为  →  ③ 跑逻辑桩测试  →  ④ 推版本
  probe_devices.py      curl/python 脚本        test_logic.py
+ probe_scenes.py
 ```
 
 ---
@@ -73,6 +74,17 @@ devices = await get("/v1/device?page=1&pageSize=50")
 
 ⚠️ 注意：`GET /v1/device?page=2` 偶尔返回 `data: null`，重读时做好判空。
 
+### 场景：想验证场景接口
+
+用 `tools/probe_scenes.py`（只读）。**执行**场景要格外小心：
+
+- ⚠️ 场景动作会真的动设备，且 `SetBrightnessColorTemperature` 会隐式开灯
+- "找个无害的场景执行一下"是做不到的 —— 必须先查目标设备当前状态，
+  挑一个执行后状态不变的场景
+- **用不存在的 sceneId 试探接口形状是安全的**：
+  `POST /v1/scene/action {"sceneId": 999999999}` 返回 `code=404 无此场景`
+  → 说明端点和 body 都对
+
 ---
 
 ## ③ `tools/test_logic.py` —— 逻辑桩测试（不用启动 HA）
@@ -87,7 +99,7 @@ python3 tools/test_logic.py -v   # 显示每条断言
 
 退出码 0 = 全过，1 = 有失败，可直接挂 CI。
 
-**当前覆盖 47 条断言**，分六组：
+**当前覆盖 72 条断言**，分七组：
 
 | 组 | 验证内容 |
 |---|---|
@@ -97,6 +109,7 @@ python3 tools/test_logic.py -v   # 显示每条断言
 | 灯：色温换算 | 0↔2700K、100↔6500K、越界钳制 |
 | 空调：能力声明 | `FAN_MODE` / `TARGET_TEMPERATURE` / `SWING_MODE` 按 actionList 出现 |
 | 空调：状态读取与控制 | 两种 schema 各自读对字段、子设备回落父 `eps[]`、`COOL→2/HEAT→1`、风速字段按 schema 分流 |
+| 场景：命名/属性/激活/过滤 | 同名场景靠房间区分、`unique_id` 格式、`async_activate` 传对 sceneId、失败抛 `HomeAssistantError`、只保留 `manual=true`、新场景自动下发、布尔字段解析 |
 
 **加测试的方式**：在 `devices` 字典里加一台假设备（照抄真实设备的
 `actionList` + `extension`），然后加 `check()` 断言。桩里的 `FakeCoordinator`
@@ -105,6 +118,12 @@ python3 tools/test_logic.py -v   # 显示每条断言
 桩模块需要跟真实 HA 行为一致才能测准 —— 比如 `ClimateEntity.supported_features`
 是从 `_attr_supported_features` 派生的 property。如果某个断言莫名失败，先确认是
 集成代码的问题还是桩造得不像。
+
+### 端到端验证真实云端（不装 HA、不装 aiohttp）
+
+桩测试只验逻辑，不验 HTTP。要验真实链路，用 `urllib` 造一个 aiohttp 桩驱动
+**真实的 `api.py`** 跑真实云端 —— 验证 URL、header、body、响应解析全链路。
+只读验证（拉场景列表），不执行场景。
 
 ---
 
@@ -130,6 +149,11 @@ python3 tools/test_logic.py -v   # 显示每条断言
 | 灯"打不开" | 是否被错误声明成 RGB 灯（`CAPABILITY_OVERRIDES`） |
 | 功率 sensor 不更新 | Plug 功率轮询任务是否启动（每 5s 一次，独立于主轮询） |
 | 状态延迟 60 秒以上 | webhook 订阅成功了吗（看日志 `Subscribed home …`）、公网 URL 通不通 |
+| 场景列表不刷新 / 新场景不出现 | `zhisuan.refresh_scenes` 服务调一下；看日志 `ZhiSuan: N new cloud scene(s) discovered` |
+| 点场景没反应 | 日志里有没有 `Activating ZhiSuan scene …`；有没有 `执行挚算场景「…」失败` |
+| 点场景后灯莫名打开了 | **这是预期行为**：场景里的 `SetBrightnessColorTemperature` 会隐式开灯 |
+| 反复 401 | **正常**：token 单活，新的登录会作废旧的（`api-quirks.md` §13），别改代码 |
+| 快捷面板按了没反应 | 面板是发射器不是负载，当前没有按键事件通路（`api-quirks.md` §14） |
 
 ## 日志
 
@@ -144,7 +168,10 @@ logger:
 
 关键日志锚点：
 - `ZhiSuan refresh OK: home_id=… devices=… rooms=…` —— 主轮询正常
+- `ZhiSuan scenes: N manual scene(s) cached` —— 场景列表已刷新
+- `ZhiSuan: N new cloud scene(s) discovered: …` —— 新场景已动态加进 HA
+- `Activating ZhiSuan scene <id> (<名字>)` —— 场景被点击
 - `Subscribed home … to …` —— webhook 订阅成功
-- `Auth error on GET … re-login and retry` —— 401 自动重登触发
+- `Auth error on GET … re-login and retry` —— 401 自动重登触发（**正常现象**，见 `api-quirks.md` §13）
 - `设备 xxx 能力校正：剔除 [...]` —— CAPABILITY_OVERRIDES 生效
 - `Plug power poll started: every 5.0s` —— 功率轮询启动

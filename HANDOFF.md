@@ -8,19 +8,20 @@
 ## 一句话现状
 
 挚算智联（杭州挚算科技）→ Home Assistant 的自定义集成，**已上线可用**，
-用户家里 66 台设备全部接入，日常在用。当前版本 **v1.3.8**。
+用户家里 66 台设备全部接入，日常在用。当前版本 **v1.4.0**。
 
 ## 交付物清单
 
 | 位置 | 内容 |
 |---|---|
-| `custom_components/zhisuan/` | 集成源码（15 个文件，约 2900 行），这就是产品 |
+| `custom_components/zhisuan/` | 集成源码（16 个文件，约 3800 行），这就是产品 |
 | `docs/api-quirks.md` | **挚算云真实行为手册**，官方 PDF 有大量错误，以这份为准 |
 | `docs/architecture.md` | 模块职责、数据流、加新设备要动哪 |
 | `docs/testing.md` | 本地验证方法论（**别在 HA 上试错**） |
 | `docs/device-inventory.md` | 用户 66 台设备实测清单 + 哪些是特殊的 |
 | `tools/probe_devices.py` | 设备能力探测器（排障第一工具） |
-| `tools/test_logic.py` | 逻辑桩测试，47 条断言，不启动 HA |
+| `tools/probe_scenes.py` | 云场景探测器（只读） |
+| `tools/test_logic.py` | 逻辑桩测试，72 条断言，不启动 HA、不联网 |
 | `tools/selftest.py` | 早期自测脚本（功能已被 probe_devices 覆盖） |
 | `AGENTS.md` | 给 AI Agent 的项目规范（**AI 工具先读这个**） |
 | `README.md` | 面向用户的部署文档 |
@@ -33,18 +34,18 @@
 git clone https://github.com/changxiang314/home-assistant-zhisuan
 cd home-assistant-zhisuan
 
-# 2. 装依赖
-pip install aiohttp
-
-# 3. 跑逻辑测试（不联网、不需要 HA，47 条断言应该全过）
+# 2. 跑逻辑测试（不联网、不需要 HA、不需要装任何依赖，72 条断言应该全过）
 python3 tools/test_logic.py -v
 
-# 4. 接真机（凭据问用户要，见下）
+# 3. 接真机（凭据问用户要，见下）
 export ZS_CLIENT_ID=... ZS_CLIENT_SECRET=...
 export ZS_USERNAME=... ZS_PASSWORD=...
 export ZS_HOME_ID=185
 python3 tools/probe_devices.py --type Dimmer
+python3 tools/probe_scenes.py --manual
 ```
+
+> 全部工具只用 Python 标准库，**不需要 `pip install aiohttp`**。
 
 ## 你需要从用户那里拿到什么
 
@@ -92,17 +93,18 @@ python3 tools/probe_devices.py --type Dimmer
 | 温湿度 / 人体传感器 | `sensor` / `binary_sensor` | ✅ 可用 |
 | Plug 实时功率 | `sensor` (power) | ✅ 可用（5s 轮询） |
 | 红外空调伴侣 | `climate` | ⚠️ 实现了但用户无此设备，未验证 |
-| 门锁 / 门铃 / 摄像头 / 场景 | — | ❌ 未实现 |
+| 云场景（手动场景） | `scene` | ✅ 可用（v1.4.0，11 个） |
+| 门锁 / 门铃 / 摄像头 | — | ❌ 未实现 |
 
 ## 架构速记
 
 ```
 挚算云  ←→  ZhisuanApi（OAuth + 401 自动重登）
               ↕
-        ZhisuanCoordinator（60s 拉全量兜底 + 5s 拉 Plug 功率）
+        ZhisuanCoordinator（60s 拉全量兜底 + 5s 拉 Plug 功率 + 场景列表）
               ↖ ZhisuanWebhookView（云端推送 DeviceReport）
               ↓
-        实体层（switch/light/cover/climate/sensor…，能力由 actionList 驱动）
+        实体层（switch/light/cover/climate/sensor/scene…，能力由 actionList 驱动）
 ```
 
 **双数据源**：webhook 推送为主（1-2 秒延迟），60 秒轮询兜底。
@@ -130,7 +132,14 @@ python3 tools/probe_devices.py --type Dimmer
 
 7. **灯的双模式（色温 + RGB）必须两个都声明** —— 只声明 RGB 会让色温控件消失。
 
-详见 `docs/api-quirks.md`（11 章）和 `AGENTS.md` §6。
+8. **token 是单活的** —— 同账号同时只有一个有效 token，任何一次新登录都会作废旧的。
+   调试脚本和 HA 会互相踢（脚本登录 → HA 401 → HA 重登 → 脚本 401）。
+   **反复 401 是正常现象，不要当成集成坏了去改代码。**
+
+9. **执行云场景有副作用** —— 场景里的 `SetBrightnessColorTemperature` 会**顺带把灯打开**。
+   调试时想找个"无害"的场景执行是做不到的，必须先查目标设备状态。
+
+详见 `docs/api-quirks.md`（14 章）和 `AGENTS.md` §6。
 
 ## 版本历史（关键节点）
 
@@ -149,33 +158,41 @@ python3 tools/probe_devices.py --type Dimmer
 | v1.3.5 | `SetColor` 字段大写改小写 |
 | v1.3.6 | 客厅灯带(2905) 能力校正 |
 | v1.3.7 | 除湿模式 `DEHUMIDIFICATION` 字符串识别 |
-| **v1.3.8** | **双模式灯（主卧灯带 2907/2891）支持色温** |
+| v1.3.8 | 双模式灯（主卧灯带 2907/2891）支持色温 |
+| **v1.4.0** | **云场景接入 HA（`scene` 平台，11 个手动场景）+ `zhisuan.refresh_scenes` 服务** |
 
 ## 优先做的事（如果继续开发）
 
-1. **新风升级成 `fan` 平台** —— 设备有风速档位，现在压成 `switch` 浪费了
-2. **虚拟子设备"自动"风速档** —— 云端不认 `{"speed":"AUTO"}`，可以试
+1. **快捷面板按键进 HA**（用户重点需求）—— 4 台「四路快捷面板」是**按键发射器**，
+   不是负载，对它发 TurnOn/TurnOff 没有意义。云端能记录按键
+   （`extension.times.buttonId` 变化 = 有人按了），但
+   - webhook 推不推按键事件、字段名是什么 → **需要用户在 HA 日志里看一次**
+   - 轮询路径确定可行但延迟 60s
+   - 「按键↔场景」的绑定关系**读不到**（面板不在任何场景的 `triggerList` 里）
+2. **新风升级成 `fan` 平台** —— 设备有风速档位，现在压成 `switch` 浪费了
+3. **虚拟子设备"自动"风速档** —— 云端不认 `{"speed":"AUTO"}`，可以试
    `AdjustUp/DownWindSpeed` 步进模拟，或问挚算客服
-3. **场景（Scene）实体** —— 用户有 4 个 `SceneTrigger` 快捷面板，现在只能当开关用
 4. **门锁 / 门铃** —— 设备类型已知，未实现
 5. **多 home 支持** —— 现在硬编码单 homeId
+6. **`__init__.py` 复用已存 token** —— 现在每次启动都重新 OAuth，会作废别的客户端的 token
 
 ## 风险与注意事项
 
 - **挚算云无 SLA、无文档质量保证**。任何"看起来该有"的字段都要实测
-- **接口可能静默变化**。`GET /v1/device/{id}` 就是某天突然开始 500 的
+- **接口可能静默变化**。`GET /v1/device/{id}` 曾经突然开始 500，2026-11-16 实测又恢复了
 - **用户在 GFW 内**。GitHub 推送要从能访问 GitHub 的机器做（本机可以，用户的家庭网络不行）
 - **不要擅自改 HA 侧的行为假设**。用户已经调好了 Adaptive Lighting 等自动化，
   改动 `supported_color_modes` / 色温区间会直接影响它们
+- **别把调试脚本和 HA 同时挂在同一个挚算账号上**，token 会互相作废（见坑 #8）
 
 ## 交接检查清单
 
-- [x] 代码在 git 里，本地与远端同步（`v1.3.8`）
+- [x] 代码在 git 里，本地与远端同步（`v1.4.0`）
 - [x] 云端 API 行为写成文档（`docs/api-quirks.md`）
 - [x] 架构和数据流写成文档（`docs/architecture.md`）
 - [x] 测试方法论 + 可复用工具（`docs/testing.md` + `tools/`）
 - [x] 设备清单（`docs/device-inventory.md`）
 - [x] AI Agent 规范（`AGENTS.md`）
-- [x] 逻辑测试 47 条全过（`python3 tools/test_logic.py`）
+- [x] 逻辑测试 72 条全过（`python3 tools/test_logic.py`）
 - [ ] **挚算凭据**：需用户当面/私下交接，不在仓库里
 - [ ] **GitHub 推送权限**：需用户给新 token 或加 collaborator

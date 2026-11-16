@@ -22,6 +22,7 @@ from .const import (
     CONF_REGION,
     DEFAULT_ENVIRONMENT,
     DOMAIN,
+    SERVICE_REFRESH_SCENES,
 )
 from .coordinator import ZhisuanCoordinator
 from .webhook import (
@@ -40,9 +41,37 @@ PLATFORMS: list[Platform] = [
     Platform.CLIMATE,
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
+    Platform.SCENE,
 ]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+async def async_setup_services(hass: HomeAssistant) -> None:
+    """Register the integration's own services.
+
+    ``zhisuan.refresh_scenes`` re-pulls the cloud scene list on demand.
+    The coordinator already refreshes it every cycle, so this is only for
+    "I just created a scene in the app and want it right now".
+    """
+    if hass.services.has_service(DOMAIN, SERVICE_REFRESH_SCENES):
+        return
+
+    async def _async_refresh_scenes(call: Any) -> None:
+        """Refresh the cloud scene list for every configured entry."""
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            store = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+            if not store:
+                continue
+            coordinator = store.get("coordinator")
+            if coordinator is None:
+                continue
+            count = await coordinator.async_refresh_scenes()
+            _LOGGER.info("Manual scene refresh: %d scene(s) cached", count)
+
+    hass.services.async_register(
+        DOMAIN, SERVICE_REFRESH_SCENES, _async_refresh_scenes
+    )
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -137,6 +166,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await async_setup_services(hass)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
 
