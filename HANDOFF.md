@@ -8,7 +8,7 @@
 ## 一句话现状
 
 挚算智联（杭州挚算科技）→ Home Assistant 的自定义集成，**已上线可用**，
-用户家里 66 台设备全部接入，日常在用。当前版本 **v1.4.0**。
+用户家里 66 台设备全部接入，日常在用。当前版本 **v1.4.1**。
 
 ## 交付物清单
 
@@ -81,7 +81,7 @@ python3 tools/probe_devices.py --type Dimmer
 | 设备 | HA 平台 | 状态 |
 |---|---|---|
 | 开关 / 插座 / 自定义面板 | `switch` | ✅ 可用 |
-| 四路快捷面板（6014）按键 | `event` | ✅ v1.4.0 起可用（每块 1 个实体、4 种事件类型） |
+| 四路快捷面板（6014）/ 快捷按钮（3056）按键 | `event` | ✅ v1.4.0 起可用（v1.4.1 支持 3056；每块 1 个实体、4 种事件类型） |
 | 灯（开关型） | `light` (onoff) | ✅ 可用 |
 | 灯（调光 + 调色温） | `light` (color_temp) | ✅ 可用 |
 | 灯（调光 + 色温 + RGB，双模式） | `light` (color_temp + rgb) | ✅ v1.3.8 起可用 |
@@ -155,6 +155,7 @@ python3 tools/probe_devices.py --type Dimmer
 | v1.3.7 | 除湿模式 `DEHUMIDIFICATION` 字符串识别 |
 | **v1.3.8** | **双模式灯（主卧灯带 2907/2891）支持色温** |
 | **v1.4.0** | **6014 四路快捷面板按键接入 HA**：新增 `push.py`（解析+去重）、`event.py`（按键事件实体），6014 从 switch 迁到 event，旧开关实体自动清理 |
+| **v1.4.1** | 同族面板 **3056 快捷按钮**（客厅 4806）接入：推送 schema 与 6014 相同、productId 不同，`push.py` 改为支持 productId 集合 |
 
 ## 优先做的事（如果继续开发）
 
@@ -162,7 +163,7 @@ python3 tools/probe_devices.py --type Dimmer
 2. **虚拟子设备"自动"风速档** —— 云端不认 `{"speed":"AUTO"}`，可以试
    `AdjustUp/DownWindSpeed` 步进模拟，或问挚算客服
 3. **场景（Scene）实体** —— 挚算 APP 里的场景还没接进 HA；
-   用户那 4 块 6014 快捷面板的按键已在 v1.4.0 接入 `event` 实体（不再是开关）
+   用户那 4 块 6014 快捷面板 + 1 块 3056 快捷按钮的按键已在 v1.4.0/v1.4.1 接入 `event` 实体（不再是开关）
 4. **门锁 / 门铃** —— 设备类型已知，未实现
 5. **多 home 支持** —— 现在硬编码单 homeId
 
@@ -182,6 +183,6 @@ python3 tools/probe_devices.py --type Dimmer
 - [x] 测试方法论 + 可复用工具（`docs/testing.md` + `tools/`）
 - [x] 设备清单（`docs/device-inventory.md`）
 - [x] AI Agent 规范（`AGENTS.md`）
-- [x] 逻辑测试 68 条全过（`python3 tools/test_logic.py`）
+- [x] 逻辑测试 70 条全过（`python3 tools/test_logic.py`）
 - [ ] **挚算凭据**：需用户当面/私下交接，不在仓库里
 - [ ] **GitHub 推送权限**：需用户给新 token 或加 collaborator

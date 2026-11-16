@@ -54,7 +54,7 @@ Host 2865 (ccu_28)
 | Light | 22 | `light`（其中 13 台是纯开关灯，只有 on/off） |
 | Dimmer | 21 | `light`（全部支持亮度+色温；2 台支持 RGB） |
 | AirCondition | 4 | `climate`（3 虚拟 + 1 mix） |
-| SceneTrigger | 4 | `event`（每块 1 个实体，4 种事件类型 button_1~4） |
+| SceneTrigger | 5 | `event`（4×6014 + 1×3056；每块 1 个实体，4 种事件类型 button_1~4） |
 | MixLightTouchPanel | 2 | `switch`（其下 virtual_light 各自是 `light`） |
 | CurtainsMotor | 2 | `cover` |
 | Sensor | 2 | `sensor` / `binary_sensor`（按属性拆多个实体） |
@@ -85,3 +85,8 @@ HA 里 `supported_color_modes = {onoff}`，**不要指望有亮度滑块**：
 
 `sensor.py` 只为 `extension` 里**实际存在**的属性建实体，没数据的属性不建
 （历史 bug：给开关类设备硬建 battery sensor，把设备拖成 unavailable）。
+
+## 2026-11 追加
+
+- 客厅新增 **4806「快捷按钮」(model 3056)**：与 6014 同族、同按键 schema，
+  集成 v1.4.1 起支持（`push.py` 的 `SHORTCUT_PANEL_PRODUCT_IDS`）。

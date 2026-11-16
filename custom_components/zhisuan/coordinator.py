@@ -70,7 +70,7 @@ class ZhisuanCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
         self._plug_poll_task: asyncio.Task | None = None
         self._plug_poll_stop: asyncio.Event | None = None
         self._plug_poll_interval: float = PLUG_POWER_POLL_INTERVAL
-        # 6014 四路快捷面板按键事件：webhook → 监听者（event 平台实体）
+        # 快捷面板按键事件：webhook → 监听者（event 平台实体）
         self._button_press_listeners: list[Callable[[dict[str, Any]], None]] = []
         self._button_deduper = ButtonPressDeduplicator()
 
@@ -327,7 +327,7 @@ class ZhisuanCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
         self.async_set_updated_data(self._devices)
 
     # ------------------------------------------------------------------
-    # 6014 四路快捷面板：按键触发（瞬时事件，不是状态）
+    # 快捷面板（6014 / 3056）：按键触发（瞬时事件，不是状态）
     # ------------------------------------------------------------------
     @callback
     def async_register_button_press_listener(
@@ -344,23 +344,24 @@ class ZhisuanCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
 
     @callback
     def async_handle_button_press(self, press: dict[str, Any]) -> None:
-        """处理一次 6014 按键（已解析，见 push.parse_button_press）。
+        """处理一次快捷面板按键（已解析，见 push.parse_button_press）。
 
         云端会把同一次按下重复推送十几条，这里按
         (userDeviceId, buttonId, 按下时间戳) 去重，一次按下只通知一次。
         """
         if self._button_deduper.is_duplicate(press):
             _LOGGER.debug(
-                "Duplicate 6014 button push dropped: device=%s button=%s ts=%s",
+                "Duplicate shortcut panel button push dropped: device=%s button=%s ts=%s",
                 press["user_device_id"], press["button"], press.get("pressed_at"),
             )
             return
 
         device = self._devices.get(press["user_device_id"]) or {}
         _LOGGER.info(
-            "6014 面板按键：%s（device=%s）按下 button_%s",
+            "快捷面板按键：%s（device=%s，productId=%s）按下 button_%s",
             device.get("deviceName") or "快捷面板",
             press["user_device_id"],
+            press.get("product_id"),
             press["button"],
         )
         for listener in list(self._button_press_listeners):

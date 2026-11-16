@@ -10,11 +10,11 @@ custom_components/zhisuan/
 ├── config_flow.py       UI 配置流程（填 clientId/secret/账号/密码/环境）
 ├── coordinator.py       数据中枢：设备缓存 + 主轮询 + Plug 功率高频轮询
 ├── webhook.py           入站推送接收 + 公网 URL 解析 + 订阅维护
-├── push.py              纯 Python：推送解析（6014 按键）+ 重复推送去重（无 HA 依赖）
+├── push.py              纯 Python：推送解析（快捷面板按键）+ 重复推送去重（无 HA 依赖）
 ├── __init__.py          生命周期入口（setup / unload / 迁移）
 ├── entity.py            所有实体的基类（device_info / available / ext 快捷方式）
 ├── switch.py            开关、插座、自定义面板（6014 快捷面板已改走 event）
-├── event.py             6014 四路快捷面板按键事件（每块面板 1 个实体、4 种 event_type）
+├── event.py             快捷面板按键事件（6014/3056；每块面板 1 个实体、4 种 event_type）
 ├── light.py             灯（开/关、调光、调色温、RGB、双模式）
 ├── cover.py             窗帘、窗帘电机
 ├── climate.py           空调、地暖、多合一（两种 schema）
@@ -61,7 +61,7 @@ custom_components/zhisuan/
 **两条数据源**：
 - **推送（主）** —— 云端 `DeviceReport` 打进来，`webhook._dispatch` 过滤白名单字段后
   调 `coordinator.async_apply_push()` 直接改内存缓存并触发 listener。延迟 1-2 秒。
-  其中 **6014 快捷面板按键**是瞬时事件，不走缓存白名单，而是
+  其中 **快捷面板按键**（6014 / 3056）是瞬时事件，不走缓存白名单，而是
   `push.parse_button_press()` → `coordinator.async_handle_button_press()`
   → event 实体 `_trigger_event()`（同一按下的重复推送在 coordinator 里去重）。
 - **轮询（兜底）** —— 每 60 秒拉全量设备列表。防止推送丢失（比如 cloudflared URL 变了）。

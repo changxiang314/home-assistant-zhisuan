@@ -1,6 +1,10 @@
-"""Event platform for ZhiSuan (挚算智联) — 6014 四路快捷面板按键事件.
+"""Event platform for ZhiSuan (挚算智联) — 快捷按键面板事件.
 
-6014 面板的 4 个键是"瞬时触发"（按下即发通知），不是开关，
+支持同族两款 2x2 四键面板（推送 schema 相同，见 push.py）：
+- 6014 四路快捷面板
+- 3056 快捷按钮（2026-11 新增）
+
+它们的 4 个键是"瞬时触发"（按下即发通知），不是开关，
 所以用 HA 的 event 实体表达：每块面板 1 个实体、4 种 event_type
 （button_1..button_4），自动化里用「事件触发」即可。
 
@@ -33,7 +37,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up one button-event entity per 6014 shortcut panel."""
+    """Set up one button-event entity per shortcut panel (6014 / 3056)."""
     coordinator: ZhisuanCoordinator = hass.data[DOMAIN][entry.entry_id][
         "coordinator"
     ]
@@ -47,9 +51,9 @@ async def async_setup_entry(
 
 
 class ZhisuanPanelButtonEvent(ZhisuanEntity, EventEntity):
-    """A 6014 four-button panel: one entity, event_type per physical button."""
+    """A shortcut panel (6014 / 3056): one entity, event_type per physical button."""
 
-    # 6014 在四个房间的设备名都叫「四路快捷面板」（云端 deviceName 不带房间），
+    # 四路快捷面板（6014）在多个房间的设备名都叫「四路快捷面板」（云端 deviceName 不带房间），
     # 用 has_entity_name=True 会生成四个一模一样的 entity_id（只剩 _2/_3/_4 后缀）。
     # 所以这里把房间名写进实体名，得到 event.chu_fang_kuai_jie_mian_ban_an_jian
     # 这类可读的 id。代价是实体名里带区域，属于"设备名重复"下的有意取舍。

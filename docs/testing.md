@@ -87,7 +87,7 @@ python3 tools/test_logic.py -v   # 显示每条断言
 
 退出码 0 = 全过，1 = 有失败，可直接挂 CI。
 
-**当前覆盖 68 条断言**，分八组：
+**当前覆盖 70 条断言**，分八组：
 
 | 组 | 验证内容 |
 |---|---|
@@ -97,8 +97,8 @@ python3 tools/test_logic.py -v   # 显示每条断言
 | 灯：色温换算 | 0↔2700K、100↔6500K、越界钳制 |
 | 空调：能力声明 | `FAN_MODE` / `TARGET_TEMPERATURE` / `SWING_MODE` 按 actionList 出现 |
 | 空调：状态读取与控制 | 两种 schema 各自读对字段、子设备回落父 `eps[]`、`COOL→2/HEAT→1`、风速字段按 schema 分流 |
-| 6014 快捷面板：推送解析与去重 | `identify` 过滤（电量上报不算按键）、`buttonId` 字符串解析、`productId=6014`、重复推送只算一次 |
-| 6014 快捷面板：event 实体 | `event_types=button_1..4`、实体名带房间、按键触发正确事件类型、重复推送不重复触发 |
+| 快捷面板（6014/3056）：推送解析与去重 | `identify` 过滤（电量上报不算按键）、`buttonId` 字符串解析、productId 集合（6014/3056）、重复推送只算一次 |
+| 快捷面板（6014/3056）：event 实体 | `event_types=button_1..4`、实体名带房间、按键触发正确事件类型、重复推送不重复触发 |
 
 **加测试的方式**：在 `devices` 字典里加一台假设备（照抄真实设备的
 `actionList` + `extension`），然后加 `check()` 断言。桩里的 `FakeCoordinator`
@@ -131,7 +131,7 @@ python3 tools/test_logic.py -v   # 显示每条断言
 | 空调模式调了反向 | `DEFAULT_MODE_MAP` 数值（实测与文档相反） |
 | 灯"打不开" | 是否被错误声明成 RGB 灯（`CAPABILITY_OVERRIDES`） |
 | 功率 sensor 不更新 | Plug 功率轮询任务是否启动（每 5s 一次，独立于主轮询） |
-| 6014 面板按键 HA 没反应 | 日志有没有 `6014 面板按键：…`（有 → event 实体问题；没有 → `identify`/`productId` 字段又变了，抓 debug payload 对照 `push.py`） |
+| 快捷面板按键 HA 没反应 | 日志有没有 `快捷面板按键：…`（有 → event 实体问题；没有 → `identify`/`productId` 字段又变了，抓 debug payload 对照 `push.py`） |
 | 状态延迟 60 秒以上 | webhook 订阅成功了吗（看日志 `Subscribed home …`）、公网 URL 通不通 |
 
 ## 日志
@@ -151,4 +151,4 @@ logger:
 - `Auth error on GET … re-login and retry` —— 401 自动重登触发
 - `设备 xxx 能力校正：剔除 [...]` —— CAPABILITY_OVERRIDES 生效
 - `Plug power poll started: every 5.0s` —— 功率轮询启动
-- `6014 面板按键：xxx 按下 button_N` —— 面板按键被识别（重复推送会打 DEBUG `Duplicate 6014 button push dropped`）
+- `快捷面板按键：xxx 按下 button_N` —— 面板按键被识别（重复推送会打 DEBUG `Duplicate shortcut panel button push dropped`）

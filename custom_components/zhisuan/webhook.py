@@ -226,7 +226,7 @@ class ZhisuanWebhookView(HomeAssistantView):
                 continue
 
             if msg_type == MSG_TYPE_DEVICE_REPORT:
-                # 6014 四路快捷面板按键：瞬时事件，不走状态白名单；
+                # 快捷按键面板（6014 / 3056）：瞬时事件，不走状态白名单；
                 # 必须在 DEVICE_REPORT_KEYS 过滤之前拦下来，否则会被丢掉。
                 press = parse_button_press(payload)
                 if press is not None:

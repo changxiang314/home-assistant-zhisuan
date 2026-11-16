@@ -231,9 +231,10 @@ DELETE /v1/subscribe/{homeId}
 
 新增设备类型时**两套字段名都要加**。
 
-### 6014 四路快捷面板的按键推送（v1.4.0 实测）
+### 快捷面板按键推送（6014 / 3056，v1.4.0 / v1.4.1 实测）
 
-6014 的按键是**瞬时事件**，不是开关状态，云端长这样：
+6014 四路快捷面板和 3056 快捷按钮是同一族，**推送 schema 完全相同**，
+只有 `extension.productId` 不同（6014 / 3056）。按键是**瞬时事件**，不是开关状态，云端长这样：
 
 ```json
 {
@@ -253,6 +254,20 @@ DELETE /v1/subscribe/{homeId}
 }
 ```
 
+3056 的实测样本（客厅 4806，2026-11-16）只多两个字段：
+
+```json
+{
+  "extension": {
+    "productId": 3056,
+    "buttonId": "1",
+    "battery": 100,
+    "times": {"BindAction": 1794837269511, "buttonId": 1794837269511,
+              "isOnline": 1794837021268, "battery": 1794837024609}
+  }
+}
+```
+
 坑（全部实测踩过）：
 
 1. `identify == "ShortcutPanelActivedNotification"` 才是真按键。同一面板的
@@ -264,6 +279,8 @@ DELETE /v1/subscribe/{homeId}
 4. 这类消息**不走** `DEVICE_REPORT_KEYS` 白名单（白名单是状态字段）：在
    `webhook._dispatch` 里先用 `push.parse_button_press()` 拦下来，再分发给 event 实体。
 5. 解析 + 去重逻辑在 `push.py`（纯 Python、无 HA 依赖，`tools/test_logic.py` 有覆盖）。
+   同族面板的 productId 写在 `SHORTCUT_PANEL_PRODUCT_IDS`（当前 `6014, 3056`），
+   以后加新面板型号只需往这个集合里加一个值。
 
 ---
 

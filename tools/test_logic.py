@@ -638,8 +638,29 @@ def run() -> None:
                  "extension": {**panel_press["data"]["extension"],
                                "productId": 6016}},
     }
-    check("productId!=6014 不算 6014 按键",
+    check("productId 不在已知面板集合不算按键",
           push.parse_button_press(not_product) is None)
+
+    # 3056 快捷按钮（客厅 4806）：与 6014 schema 相同，productId 不同
+    press_3056 = {
+        **panel_press,
+        "data": {
+            **panel_press["data"],
+            "userDeviceId": 4806,
+            "extension": {
+                **panel_press["data"]["extension"],
+                "productId": 3056,
+                "battery": 100,
+            },
+        },
+    }
+    parsed_3056 = push.parse_button_press(press_3056)
+    check("productId=3056（快捷按钮）同样能解析", parsed_3056 is not None)
+    check("  3056 的 device/button 正确",
+          parsed_3056 is not None
+          and (parsed_3056["user_device_id"], parsed_3056["button"])
+          == (4806, 2),
+          str(parsed_3056))
 
     bad_button = {
         **panel_press,

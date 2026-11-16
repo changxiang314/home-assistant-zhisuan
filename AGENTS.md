@@ -8,12 +8,12 @@
 
 - **做什么**：把杭州挚算科技（ZhiSuan / aioteco）的小众智能家居云接进 Home Assistant
 - **形态**：一个 HA custom component，通过 **HACS** 分发
-- **当前版本**：v1.4.0（见 `custom_components/zhisuan/manifest.json`）
+- **当前版本**：v1.4.1（见 `custom_components/zhisuan/manifest.json`）
 - **用户**：1 位真实用户（智能硬件 PM，非程序员），家里 66 台设备，HA OS 跑在 ARM 小主机
 - **仓库**：https://github.com/changxiang314/home-assistant-zhisuan
 - **本地路径**：`/Users/dcc/.minimax/workspace/zhisuan-ha 2`（注意目录名有空格和 `2`，是历史遗留）
 
-**已可用**：开关 / 灯（调光+调色温+RGB）/ 窗帘 / 空调（两种 schema）/ 地暖 / 新风 / 传感器 / Plug 功率 / 6014 四路快捷面板按键事件
+**已可用**：开关 / 灯（调光+调色温+RGB）/ 窗帘 / 空调（两种 schema）/ 地暖 / 新风 / 传感器 / Plug 功率 / 快捷面板按键事件（6014 四路快捷面板、3056 快捷按钮）
 **实现但用户未验证**：红外空调伴侣、门锁、门铃、摄像头
 
 ## 1. 必读顺序
@@ -81,7 +81,7 @@ python3 tools/probe_devices.py --type Dimmer      # 按类型
 
 # 逻辑桩测试（不需要 HA，不联网）
 python3 tools/test_logic.py          # 只显示失败
-python3 tools/test_logic.py -v       # 显示全部 68 条断言
+python3 tools/test_logic.py -v       # 显示全部 70 条断言
 
 # OAuth + 拉设备自测（老工具，功能被 probe_devices 覆盖）
 python3 tools/selftest.py --client-id ... --client-secret ... --username ... --password ... --home-id 185
@@ -115,7 +115,7 @@ GH_TOKEN=<token> GIT_ASKPASS=<askpass脚本> git push https://x-access-token@git
 - [ ] 红外空调伴侣的状态回读
 - [ ] `QueryStatisticsLog`（电量日志）对 Plug 返回 500，电量统计暂缺
 - [ ] 门锁 / 门铃 / 摄像头未实现
-- [ ] 场景（Scene）实体未实现，目前只能通过 Action 触发（6014 面板按键已在 v1.4.0 接入 event 实体）
+- [ ] 场景（Scene）实体未实现，目前只能通过 Action 触发（快捷面板按键已在 v1.4.0/v1.4.1 接入 event 实体）
 - [ ] `PLUG_POWER_POLL_INTERVAL = 5s` 是否需要做成 UI 可配置
 - [ ] 多套 home 支持（当前硬编码单 homeId）
 
